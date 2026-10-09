@@ -1,0 +1,3 @@
+# Only certificate generation and TLS tests need this dependency.
+# Core backend uses Python's standard library. Local test environment: 46.0.4.
+cryptography>=46.0.4,<51
