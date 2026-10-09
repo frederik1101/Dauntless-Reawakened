@@ -1,54 +1,67 @@
-# Local validation — 9 October 2026
+# Verified validation — 9 October 2026
 
-Base revision: `01e06a90cc6f051a4c972a26ee5eabb5653f1f78`.
+Latest tested code: **`a1246084ab24d7b684878e32f790c647e1963d7b`**.
 
-**50 tests passed; 0 failures; 0 skipped** in the local Linux execution environment for this change.
+**72 tests passed locally, zero failures, zero skipped. All four GitHub Actions jobs also passed.**
+These are backend/transport/contract tests, NOT successful Dauntless client-login or gameplay tests.
+
+## Local execution
+
 Command: `python -m unittest discover -s tests -v`.
-Python: 3.13.5. OpenSSL: 3.5.5. Cryptography: 46.0.4.
+Environment: Linux, Python 3.13.5, OpenSSL 3.5.5, cryptography 46.0.4.
+The full verbose run completed in 0.708s. Three additional consecutive full runs passed.
 `python -m compileall -q backend tools tests` also completed successfully.
 
-This includes the 14 unchanged pure fixture/persistence/session regression tests, whose source files
-were checked against their fetched GitHub blob hashes, and 36 HTTP, storage, session and TLS tests.
+The suite contains 14 unchanged legacy fixture/persistence/session regression tests, 36 new transport,
+HTTP, storage and session tests, and 22 initial player-data tests. The uploaded code blobs were checked
+against the locally tested files' Git object hashes.
 
-Coverage includes real IPv4 and IPv6 loopback TLS handshakes with a game-service SNI name; local session
-exchange with a synthetic JWT; certificate trust rejection; token expiry/revocation; account isolation;
-character creation, updates and database reopening; concurrent creation; strict JSON value types;
-unknown-route empty responses; request-size and transfer-encoding rejection; and log redaction.
+## GitHub Actions — actual results, not just a workflow definition
 
-**Not tested here:** Windows execution, the user's installation, real Epic token validation, actual
-Dauntless login, shared config isolation, Ramsgate, movement, inventory/gameplay or a hunt server.
-The GitHub workflow now schedules Windows and Linux on Python 3.11 and 3.13. A workflow definition is
-not a test result; inspect its actual run before claiming those environments passed.
+[Run 37980878135](https://github.com/frederik1101/Dauntless-Reawakened/actions/runs/37980878135)
+ran against the code commit above. The job statuses were fetched after completion:
+
+| Job | Job ID | Result |
+| --- | --- | --- |
+| Windows / Python 3.13 | 113990763017 | Success |
+| Ubuntu / Python 3.13 | 113990763098 | Success |
+| Ubuntu / Python 3.11 | 113990763201 | Success |
+| Windows / Python 3.11 | 113990763328 | Success |
+
+The full **Windows/Python 3.13** log was additionally inspected. It reports **72 tests passed in
+28.842s, no skips**, including IPv4/IPv6 HTTPS and the added session-to-player-data TLS sequence.
+That runner used Windows Server 2025, Python 3.13.15 and cryptography 50.0.2.
+This verifies a hosted Windows test environment, not the user's Windows 11 machine or the game.
+The other three completed job statuses were inspected; their full logs were not individually reviewed.
+
+## What the tests cover
+
+- Actual IPv4 and IPv6 loopback TLS handshakes, game-service SNI and rejection of an untrusted CA.
+- Host routing, case-insensitive local session bearers, expiry, revocation and account isolation.
+- Character creation, strict data types, exact client update versions, conflict rejection and database reopening.
+- Concurrent character creation, scoped inventory reads and one-time starter inventory across concurrent reads/restarts.
+- Typed loadout slot counts, the documented empty-loadout active index, and initial progression read shapes.
+- A real TLS request sequence through a synthetic research session, account-info, character creation,
+  inventory, loadout reads and a character save/read. This deliberately omits the still-unknown early login calls.
+- Unknown-route bodyless responses, request-size limits, transfer-encoding rejection and log redaction.
+
+A repeated run exposed a timing race: the handler originally sent the HTTP response before writing its
+redacted audit entry. Logging now precedes the response, and the repeated full runs passed afterward.
 
 The TLS negative test intentionally logs `transport-request-failed` when the client rejects the test
-CA; that expected warning is not a test failure. Certificates are generated inside temporary directories
-and deleted by the tests. No real account credentials, client files or external services were used.
+CA. That expected warning is not a test failure. Certificates are generated inside temporary directories
+and deleted by the tests. No real Epic credentials, game files or external game services were used.
 
-## Verified GitHub Actions result for the transport baseline
+## Not established by these tests
 
-The four jobs in [run 37979391572](https://github.com/frederik1101/Dauntless-Reawakened/actions/runs/37979391572)
-completed successfully for commit `e1cbb01586cb89b4c22141e7903f4b0c8c1721c9`:
-Ubuntu/Python 3.11, Windows/Python 3.11, Ubuntu/Python 3.13, Windows/Python 3.13.
+Actual Epic authentication (the optional JWT-subject mode does not verify tokens), complete Dauntless
+login, Windows client/DNS/certificate/config isolation, Ramsgate, a controllable pawn, equipped gear,
+inventory transactions, crafting, XP, saved loadout changes, hunts or a compatible UE5 game server.
+See [connection blockers](CONNECTION_BASELINE.md) and [player-data read limitations](PLAYER_DATA_READS.md).
 
-The full Windows/Python 3.13 log (job `113985743136`) was also inspected: **50 tests passed, no skips**,
-including both IPv4 and IPv6 TLS tests. That runner used Windows Server 2025, Python 3.13.15 and
-cryptography 50.0.2. This verifies the hosted Windows test environment, **not** the user's Windows 11
-installation or the Dauntless game. The four job statuses are not a claim that four real game clients ran.
+## Prior transport baseline
 
-## Follow-up: initial player-data reads
-
-The follow-up change adds 22 tests, bringing the local suite to **72 tests passed, zero skipped**.
-The full verbose run completed in 0.708s, followed by three successful repeated runs. Compilation with
-`python -m compileall -q backend tools tests` also succeeded. Environment remains the local Linux
-Python 3.13.5/OpenSSL 3.5.5/cryptography 46.0.4 combination described above.
-
-New coverage: scoped inventory/loadout/progression reads, one-time inventory seed across database
-reopening and concurrent requests, correct loadout scalar types, consistent slot counts, numeric-code
-progression wrappers, all six documented initial Escalation-season shapes, and a real TLS request
-sequence covering a synthetic research session through account, character, inventory, loadouts and save.
-
-A log timing race found during reruns was fixed by recording the redacted audit entry before writing
-the HTTP response. The expected untrusted-certificate rejection warning remains harmless.
-
-The **72-test** version must have its own Actions run inspected; the earlier 50-test Windows run does
-not establish results for the new code. Neither count demonstrates a complete game login or gameplay.
+Code `e1cbb01586cb89b4c22141e7903f4b0c8c1721c9` had 50 passing local tests.
+Its [Actions run 37979391572](https://github.com/frederik1101/Dauntless-Reawakened/actions/runs/37979391572)
+also passed all four matrix jobs. Windows/Python 3.13 job `113985743136` was inspected and reported
+50 tests, no skips. That earlier result is retained for traceability, not substituted for the newer run.
