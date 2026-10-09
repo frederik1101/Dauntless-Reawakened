@@ -28,6 +28,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def respond_empty_404(self) -> None:
+        """Unknown routes must have a body-less 404 (per 2.1.1 findings)."""
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def read_json(self):
         try:
             size = int(self.headers.get("Content-Length", "0"))
@@ -43,13 +49,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, {"status": "ok", "game_compatible": False})
         if path == "/gamesession-prod/features/platform/win":
             return self.respond(200, features())
-        if path == "/gamesession-prod/account/link/epic/demo":
+        if path.startswith("/gamesession-prod/account/link/epic/") and path.rsplit("/", 1)[-1]:
             return self.respond(200, linked_account())
         if path == "/auth-prod/accountinfo":
             return self.respond(200, account_info(DEMO_ACCOUNT, "LocalSlayer"))
         if path == "/dauntless-prod/character":
             return self.respond(200, store.get(DEMO_ACCOUNT))
-        return self.respond(404, {"error": "not_implemented"})
+        return self.respond_empty_404()
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
