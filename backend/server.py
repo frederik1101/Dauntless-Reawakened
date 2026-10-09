@@ -10,13 +10,15 @@ from urllib.parse import urlsplit
 
 from .contract import login_queue, linked_account
 from .persistence import JsonCharacterRepository
-from .protocol_211 import account_info, character_seed, features
+from .protocol_211 import account_info, character_seed, features, game_session_response
+from .sessions import DemoSessionManager
 
 HOST = "127.0.0.1"
 PORT = 8765
 DEMO_ACCOUNT = "offline-demo-account"
 DATA_FILE = Path(__file__).resolve().parent.parent / "local-data" / "characters.json"
 store = JsonCharacterRepository(DATA_FILE)
+sessions = DemoSessionManager()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -73,6 +75,10 @@ class Handler(BaseHTTPRequestHandler):
         return self.respond(404, {"error": "not_implemented"})
 
     def do_PUT(self) -> None:
+        if urlsplit(self.path).path == "/gamesession-prod/gamesession/epiceos":
+            # Explicitly offline demo fixture. Does not validate EOS credentials.
+            session = sessions.create(DEMO_ACCOUNT)
+            return self.respond(200, game_session_response(session.session_id, session.session_token))
         if urlsplit(self.path).path != "/dauntless-prod/character":
             return self.respond(404, {"error": "not_implemented"})
         try:
