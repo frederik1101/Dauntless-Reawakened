@@ -26,12 +26,15 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/health":
             return self.respond(200, {"status": "ok", "game_compatible": False})
-        if path == "/login-queue-prod/login":
-            return self.respond(200, login_queue())
         if path == "/gamesession-prod/account/link/epic/demo":
             return self.respond(200, linked_account())
         if path == "/dauntless-prod/character":
             return self.respond(200, store.list())
+        return self.respond(404, {"error": "not_implemented"})
+
+    def do_POST(self) -> None:
+        if urlsplit(self.path).path == "/login-queue-prod/login":
+            return self.respond(200, login_queue())
         return self.respond(404, {"error": "not_implemented"})
 
     def do_PUT(self) -> None:
