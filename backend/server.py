@@ -39,6 +39,10 @@ def make_handler(app: Application, *, secure: bool = False):
 
         def _send(self, response):
             body = response.body()
+            # Record the fixed route before sending the response, so a completed
+            # request cannot race ahead of its audit entry in tests/diagnostics.
+            method = self.command if self.command in {'GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH'} else 'OTHER'
+            LOG.info('method=%s route=%s status=%d', method, response.route, response.status)
             self.send_response(response.status)
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Cache-Control', 'no-store')
@@ -49,8 +53,6 @@ def make_handler(app: Application, *, secure: bool = False):
             if self.command != 'HEAD' and body:
                 self.wfile.write(body)
             self.close_connection = True
-            method = self.command if self.command in {'GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH'} else 'OTHER'
-            LOG.info('method=%s route=%s status=%d', method, response.route, response.status)
 
         def _dispatch(self):
             try:

@@ -40,6 +40,14 @@ class Database:
                 id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id),
                 name TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS character_account ON characters(account_id);
+            CREATE TABLE IF NOT EXISTS inventory_bootstraps (
+                character_id TEXT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS inventory_instances (
+                character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+                instance_id TEXT NOT NULL, catalog_id TEXT NOT NULL,
+                quantity INTEGER NOT NULL CHECK(quantity > 0),
+                version INTEGER NOT NULL CHECK(version >= 0),
+                PRIMARY KEY(character_id, instance_id));
         ''')
         self._db.commit()
 
@@ -86,6 +94,32 @@ class Database:
             self._db.execute('UPDATE characters SET version=?,data=? WHERE id=? AND account_id=?',
                              (version, data, character_id, account_id))
         return {'data': data}
+
+    def owns_character(self, account_id: str, character_id: str) -> bool:
+        with self._lock:
+            return self._db.execute('SELECT 1 FROM characters WHERE id=? AND account_id=?',
+                                    (character_id, account_id)).fetchone() is not None
+
+    def bootstrap_inventory(self, account_id: str, character_id: str) -> dict:
+        """Persist only the two documented research starter items, once per character.
+
+        This is not a reward, crafting or inventory-transaction implementation.
+        A marker prevents future item removals from silently re-granting the seed.
+        """
+        with self._lock, self._db:
+            if not self.owns_character(account_id, character_id):
+                raise KeyError('Character not found')
+            added = self._db.execute('INSERT OR IGNORE INTO inventory_bootstraps VALUES (?)',
+                                     (character_id,)).rowcount
+            if added:
+                self._db.executemany('INSERT INTO inventory_instances VALUES (?,?,?,?,?)',
+                    [(character_id, catalog, catalog, 1, 1)
+                     for catalog in ('WP_EB_TRAINING', 'LT_BASIC')])
+            rows = self._db.execute(
+                'SELECT catalog_id AS catalogId,instance_id AS instanceId,quantity,'
+                'version AS updateVersion FROM inventory_instances WHERE character_id=? '
+                'ORDER BY catalog_id', (character_id,)).fetchall()
+        return {'stackedItems': [], 'instancedItems': [dict(row) for row in rows]}
 
     def close(self) -> None:
         with self._lock:

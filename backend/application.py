@@ -15,6 +15,7 @@ from .contract import linked_account, login_queue
 from .database import Database, VersionConflict
 from .protocol_211 import account_info, character_seed, features, game_session_response
 from .session_store import SessionStore, unverified_subject
+from .player_data import match_read, initial_loadouts, initial_progression, slot_counts, wrapped
 
 SERVICES = frozenset({
     'auth-prod', 'gamesession-prod', 'login-queue-prod', 'dauntless-prod',
@@ -24,7 +25,7 @@ SERVICES = frozenset({
 LOCAL_HOSTS = frozenset({'127.0.0.1', '::1', 'localhost'})
 BLOCKERS = [
     'maintenance/status, auth/tags and auth/isbanned response schemas unverified',
-    'inventory, loadouts and progression not implemented',
+    'only initial player-data reads implemented; inventory transactions, loadout saves and gameplay progression absent',
     'matchmaking, presence and dedicated UE5 game server not implemented',
     'no end-to-end test with a Dauntless client',
 ]
@@ -130,6 +131,29 @@ class Application:
             if service in {'status', 'local'} and endpoint == '/dauntless-status' and method == 'GET':
                 payload = {language: '' for language in ('en', 'fr', 'it', 'es', 'de', 'pt', 'ru', 'ja')}
                 return Response(200, {'show-status': False, **payload}, 'status-banner')
+
+            # Authentication and ownership apply to all initial player-data reads.
+            data_route = match_read(service, endpoint) if method == 'GET' else None
+            if data_route:
+                route = data_route.label
+                session = self.sessions.resolve(bearer(headers))
+                if session is None or (data_route.account and data_route.account != session.account_id):
+                    raise PermissionError()
+                if data_route.character and not self.database.owns_character(session.account_id, data_route.character):
+                    return Response(404, route=route)
+                if route == 'inventory-bootstrap':
+                    payload = self.database.bootstrap_inventory(session.account_id, data_route.character)
+                elif route == 'loadouts-bootstrap':
+                    payload = initial_loadouts()
+                elif route == 'loadout-slots':
+                    payload = wrapped(slot_counts())
+                else:
+                    payload = initial_progression(route)
+                return Response(200, payload, route)
+            if service == 'dauntless-prod' and endpoint == '/inventory' and method == 'POST':
+                # Never echo a transaction or claim items were granted before a real
+                # atomic transaction/retry/cost-validation implementation exists.
+                return Response(503, route='unimplemented-inventory-transaction')
 
             known = ((service == 'auth-prod' and endpoint in {'/accountinfo', '/entitlementsv2'} and method == 'GET')
                      or (service == 'dauntless-prod' and endpoint == '/character' and method in {'GET', 'PUT', 'POST'})

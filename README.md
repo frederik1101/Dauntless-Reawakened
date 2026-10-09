@@ -5,17 +5,20 @@ Unofficial, experimental local-backend research for the **Dauntless 2.1.1 Window
 **Not playable. No complete game login, controllable character or hunt server is implemented.**
 A running HTTP service, a successful TLS handshake or a green test suite does not prove game compatibility.
 
-## Implemented and locally tested
+## Implemented and tested
 
 - Host-based Phoenix service routing, plus prefixed localhost routes for tests.
 - Loopback-only HTTP and optional HTTPS, with separate IPv4/IPv6 listeners.
 - Local sessions with expiry, revocation and account-scoped character access.
 - Transactional SQLite character storage; exact client update versions and string-only data blobs.
 - Known login-queue, feature, account-link, account-info, character, entitlement and status response shapes.
+- Initial inventory/loadout/progression read routes, with account and character ownership checks.
+- Persisted, one-time research starter weapon/lantern seed; **not** an inventory transaction/crafting system.
 - An explicitly opt-in **unverified JWT subject lookup** for research. This is NOT Epic authentication.
 - Request logs without tokens, raw URLs, query strings, request bodies or account IDs.
 
 See [the evidence and blockers](docs/CONNECTION_BASELINE.md),
+[player-data read limitations](docs/PLAYER_DATA_READS.md),
 [developer instructions](docs/PROTOTYPE.md), and [test report](docs/VALIDATION.md).
 
 ## Development

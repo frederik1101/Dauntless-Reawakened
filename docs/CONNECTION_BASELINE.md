@@ -35,8 +35,9 @@ Additional context: [the standalone experiment](https://mixutin.github.io/dauntl
 2. The 1.14.7 `ParadoxBackend/src/routes/login.ts` contains tags and `isBanned` response examples. Those
    are useful leads, **not verified 2.1.1 contracts**. Preserve source attribution and inspect license
    requirements before incorporating any actual upstream code.
-3. Implement and test the inventory, loadout, progression and presence paths needed after login.
-   Do not assert that an empty fixture grants valid equipment or completes all player-data loaders.
+3. Initial inventory/loadout/progression read endpoints now exist: see PLAYER_DATA_READS.md.
+   Implement actual transactions, loadout saves, progression rules and presence next. Do not assert
+   that initial/empty responses grant a valid full loadout or complete every player-data loader.
 4. Prepare a reversible Windows client-test procedure: preserve original game files, game CA bundle,
    shared Archon config and any existing hosts entries. Never install the research CA in system trust
    or disable certificate verification globally. Protect the already-working Revived setup.
@@ -60,3 +61,14 @@ build limitation honestly. A simulated JWT test is not verification against Epic
 
 The original repository's small response helpers are reused. No game SDK, game binary, upstream C++
 runtime or bulk third-party source code is vendored in this change.
+
+## Follow-up player-data integration
+
+`backend/player_data.py` now matches the documented initial read paths, and the application enforces
+session/account/character scope before answering. The two-item research inventory is stored once per
+character. Active loadouts use the upstream-tested empty/default shape with `active_index: -1`; there
+is no loadout-writing implementation. Progression read responses are explicitly initial fixtures.
+
+A repeated local run exposed a timing race in the log-redaction test: the original handler could send
+its response before emitting the audit entry. The log now records its fixed, redacted route **before**
+writing the response; three consecutive full runs passed after the change. No sensitive data is logged.
