@@ -6,6 +6,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from backend import server
 from backend.persistence import JsonCharacterRepository
@@ -38,6 +39,15 @@ class HttpContractTests(unittest.TestCase):
     def test_features_and_account(self):
         self.assertTrue(self.request("/gamesession-prod/features/platform/win")["crossplay"])
         self.assertEqual(self.request("/auth-prod/accountinfo")["accountId"], server.DEMO_ACCOUNT)
+
+    def test_linked_account_accepts_dynamic_id(self):
+        self.assertTrue(self.request("/gamesession-prod/account/link/epic/example-id")["payload"]["isLinked"])
+
+    def test_unknown_route_has_no_body(self):
+        with self.assertRaises(HTTPError) as caught:
+            self.request("/unknown-route")
+        self.assertEqual(caught.exception.code, 404)
+        self.assertEqual(caught.exception.read(), b"")
 
     def test_login_queue(self):
         self.assertEqual(self.request("/login-queue-prod/login", "POST")["state"], "OPEN")
