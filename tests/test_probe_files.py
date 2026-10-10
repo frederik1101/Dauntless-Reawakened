@@ -99,11 +99,14 @@ class ProbeFilesTests(unittest.TestCase):
         restore(journal)
         self.assertEqual(self.hosts.read_bytes(), original)
 
-    def test_missing_original_ca_fails_closed(self):
+    def test_missing_ca_parent_fails_closed_before_changes(self):
         self.ca.unlink()
+        self.ca = self.root / 'Engine/Content/Certificates/cacert.pem'
         with self.assertRaises(ValueError):
             self.apply()
         self.assertFalse(self.state.exists())
+        self.assertEqual(self.hosts.read_bytes(), self.original_hosts)
+        self.assertEqual((self.config / 'Engine.ini').read_bytes(), b'original Revived settings')
 
     def test_existing_state_is_not_overwritten(self):
         self.state.mkdir()
