@@ -22,3 +22,7 @@ client/
 *.pak
 *.ucas
 *.utoc
+build/
+dist/
+*.spec
+DauntlessReawakenedProbe/
