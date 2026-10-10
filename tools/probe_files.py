@@ -117,7 +117,7 @@ def restore(journal: Path) -> None:
         current = target.read_bytes() if target.is_file() else b''
         original = (state / (name + '.original')).read_bytes()
         block = (state / (name + '.block')).read_bytes()
-        if current == original and (name != 'ca' or record.get('ca_existed', True)):
+        if current == original and (name != 'ca' or record.get('ca_existed', True) or not target.exists()):
             continue
         if current.count(block) != 1:
             raise ValueError(f'{name} was modified during the probe; backup retained, refusing overwrite')
