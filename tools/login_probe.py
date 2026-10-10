@@ -43,8 +43,8 @@ EXPECTED_SIZE = 151448856  # User-observed 2.1.1 installation; not a cryptograph
 def inspect_client(root: Path) -> dict:
     exe = root / EXE_RELATIVE
     ca = root / 'Engine/Content/Certificates/cacert.pem'
-    if not exe.is_file() or not ca.is_file():
-        raise ValueError('The original game executable or CA bundle is missing')
+    if not exe.is_file():
+        raise ValueError('The original game executable is missing')
     if exe.is_symlink() or ca.is_symlink():
         raise ValueError('Symlinked game files are not supported')
     with exe.open('rb') as stream:
@@ -60,7 +60,7 @@ def inspect_client(root: Path) -> dict:
     with exe.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest() if hasattr(hashlib, 'file_digest') else _digest(stream)
     return {'exe': str(exe.absolute()), 'size': exe.stat().st_size, 'sha256': digest,
-            'build_verified_by_hash': False, 'ca_bundle_found': True}
+            'build_verified_by_hash': False, 'ca_bundle_found': ca.is_file()}
 
 
 def _digest(stream):
@@ -110,6 +110,8 @@ def run_probe(root: Path, home: Path, seconds: int, maintenance: bool):
     print('\nThis is a LOGIN/REQUEST TEST ONLY. No Ramsgate server or hunts exist.')
     print('It temporarily adds localhost mappings for Phoenix service names and a LOCAL CA')
     print('to this game only, and switches aside the shared WindowsClient config.')
+    if not metadata['ca_bundle_found']:
+        print('No original game CA bundle exists; a temporary CA file will be created and removed on restore.')
     print('The original EXE is not modified. Epic domains and system trust are not changed.')
     if maintenance:
         print('WARNING: maintenance uses the UNVERIFIED candidate {"isMaintenance": false}.')
