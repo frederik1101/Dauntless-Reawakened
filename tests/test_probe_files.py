@@ -39,6 +39,27 @@ class ProbeFilesTests(unittest.TestCase):
         self.assertEqual((self.config / 'Engine.ini').read_bytes(), b'original Revived settings')
         self.assertTrue(json.loads(journal.read_text())['restored'])
 
+    def test_missing_ca_is_temporary_and_removed_on_restore(self):
+        self.ca.unlink()
+        journal = self.apply()
+        self.assertTrue(self.ca.is_file())
+        self.assertIn(b'BEGIN CERTIFICATE', self.ca.read_bytes())
+        self.assertFalse(json.loads(journal.read_text())['ca_existed'])
+        restore(journal)
+        self.assertFalse(self.ca.exists())
+        self.assertEqual(self.hosts.read_bytes(), self.original_hosts)
+        self.assertEqual((self.config / 'Engine.ini').read_bytes(), b'original Revived settings')
+
+    def test_missing_ca_refuses_deleting_unrelated_content(self):
+        self.ca.unlink()
+        journal = self.apply()
+        with self.ca.open('ab') as stream:
+            stream.write(b'unrelated')
+        with self.assertRaises(ValueError):
+            restore(journal)
+        self.assertTrue(self.ca.exists())
+        self.assertFalse(json.loads(journal.read_text())['restored'])
+
     def test_second_restore_is_idempotent(self):
         journal = self.apply()
         restore(journal)
