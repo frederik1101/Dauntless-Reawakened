@@ -56,13 +56,18 @@ def prepare(state: Path, ca: Path, hosts: Path, config: Path,
         _plain_path(p)
     if state.exists():
         raise FileExistsError('Probe state already exists; restore it first')
-    if not ca.is_file() or not hosts.is_file():
-        raise ValueError('Original CA bundle and hosts file must exist')
+    if not hosts.is_file():
+        raise ValueError('Original hosts file must exist')
+    if ca.exists() and not ca.is_file():
+        raise ValueError('CA path exists but is not a regular file')
+    if not ca.exists() and not ca.parent.is_dir():
+        raise ValueError('CA parent directory is missing; refusing to create directories')
     if config.exists() and not config.is_dir():
         raise ValueError('Config path must be a directory')
     if b'-----BEGIN CERTIFICATE-----' not in public_ca:
         raise ValueError('Expected a public PEM certificate')
-    original_ca, original_hosts = ca.read_bytes(), hosts.read_bytes()
+    ca_existed = ca.is_file()
+    original_ca, original_hosts = (ca.read_bytes() if ca_existed else b''), hosts.read_bytes()
     marker = uuid.uuid4().hex
     host_block = hosts_addition(original_hosts, names, marker)
     ca_block = (f'\n# BEGIN REAWAKENED {marker}\n'.encode() + public_ca.rstrip() +
@@ -79,7 +84,7 @@ def prepare(state: Path, ca: Path, hosts: Path, config: Path,
             stream.write(value)
     record = {'version': 1, 'marker': marker, 'ca': str(ca), 'hosts': str(hosts),
               'config': str(config), 'config_backup': str(backup), 'config_after': str(after),
-              'config_existed': config.exists(), 'restored': False}
+              'config_existed': config.exists(), 'ca_existed': ca_existed, 'restored': False}
     journal = state / 'journal.json'
     journal_write(journal, record)
     try:
@@ -109,10 +114,10 @@ def restore(journal: Path) -> None:
     for name in ('ca', 'hosts'):
         target = Path(record[name])
         _plain_path(target)
-        current = target.read_bytes()
+        current = target.read_bytes() if target.is_file() else b''
         original = (state / (name + '.original')).read_bytes()
         block = (state / (name + '.block')).read_bytes()
-        if current == original:
+        if current == original and (name != 'ca' or record.get('ca_existed', True)):
             continue
         if current.count(block) != 1:
             raise ValueError(f'{name} was modified during the probe; backup retained, refusing overwrite')
@@ -132,7 +137,12 @@ def restore(journal: Path) -> None:
     if is_probe and after.exists():
         raise ValueError('Test-config archive already exists')
     for target, value in updates:
-        target.write_bytes(value)
+        if target == Path(record['ca']) and not record.get('ca_existed', True):
+            if value:
+                raise ValueError('Temporary CA contains unexpected data; refusing deletion')
+            target.unlink(missing_ok=True)
+        else:
+            target.write_bytes(value)
     if is_probe:
         config.rename(after)  # Retain test configuration locally; never upload it.
     elif config.exists() and not untouched:
