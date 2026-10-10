@@ -208,7 +208,7 @@ def main():
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--run', action='store_true')
     mode.add_argument('--restore', action='store_true')
-    parser.add_argument('--game-root', type=Path, default=Path(r'C:\Games\Dauntless'))
+    parser.add_argument('--game-root', type=Path, default=Path(r'C:\Program Files\Epic Games\Dauntless'))
     parser.add_argument('--state', type=Path, default=Path(os.environ.get('LOCALAPPDATA', '.')) / 'DauntlessReawakenedProbe')
     parser.add_argument('--seconds', type=int, default=180)
     parser.add_argument('--experimental-maintenance', action='store_true')
