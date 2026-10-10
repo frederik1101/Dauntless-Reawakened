@@ -2,29 +2,36 @@
 
 Unofficial, experimental local-backend research for the **Dauntless 2.1.1 Windows client**.
 
-**Not playable. No complete game login, controllable character or hunt server is implemented.**
-A running HTTP service, a successful TLS handshake or a green test suite does not prove game compatibility.
+**Not playable. No successful real-client login, controllable pawn or hunt server is verified.**
+A running HTTP service, TLS handshake or green test suite does not prove game compatibility.
 
-## Implemented and tested
+## First Windows login experiment
 
-- Host-based Phoenix service routing, plus prefixed localhost routes for tests.
-- Loopback-only HTTP and optional HTTPS, with separate IPv4/IPv6 listeners.
-- Local sessions with expiry, revocation and account-scoped character access.
-- Transactional SQLite character storage; exact client update versions and string-only data blobs.
-- Known login-queue, feature, account-link, account-info, character, entitlement and status response shapes.
-- Initial inventory/loadout/progression read routes, with account and character ownership checks.
-- Persisted, one-time research starter weapon/lantern seed; **not** an inventory transaction/crafting system.
-- An explicitly opt-in **unverified JWT subject lookup** for research. This is NOT Epic authentication.
-- Request logs without tokens, raw URLs, query strings, request bodies or account IDs.
+A bounded, opt-in login probe is now packaged by GitHub Actions. It combines the
+existing 2.1.1 backend with selected Python ports from Mystic Paradox's login handlers.
+It checks the original client, starts a localhost backend and runs a three-minute
+attempt with journalled configuration/hosts/CA-bundle changes and recovery support.
+Read the exact effects and restoration procedure before using it.
 
-See [the evidence and blockers](docs/CONNECTION_BASELINE.md),
-[player-data read limitations](docs/PLAYER_DATA_READS.md),
-[developer instructions](docs/PROTOTYPE.md), and [test report](docs/VALIDATION.md).
+- [Windows probe instructions](docs/LOGIN_PROBE.md)
+- [Download the tested Windows artifact](https://github.com/frederik1101/Dauntless-Reawakened/actions/runs/38078759843/artifacts/11679128295)
+- [Exact source, ported handlers and cross-version caveats](docs/MYSTIC_LOGIN_PORT.md)
+- [Verified build/test record](docs/LOGIN_PROBE_VALIDATION.md)
 
-## Development
+**The maintenance-status response remains an explicit hypothesis.** The opt-in EOS
+subject lookup is not signature-verified Epic authentication. There is no compatible
+UE5 game server to travel to. Do not interpret a login attempt as playable Ramsgate.
 
-Python 3.11+ is the tested target. The core server uses only the standard library.
-Certificate generation and TLS tests additionally use `requirements-dev.txt`.
+## Backend baseline
+
+Host-based Phoenix service routing; loopback HTTP/HTTPS with separate IPv4/IPv6
+listeners; expiring local sessions; transactional, account-scoped SQLite character
+storage; documented response shapes and initial inventory/loadout/progression reads.
+The starter inventory is an initial research seed, not working crafting/rewards.
+The original `backend.application.Application` remains the conservative default;
+`LoginPortApplication` enables the additional experimental handlers for the probe.
+
+Python 3.11+ is the tested source target. Certificate generation needs requirements-dev.txt.
 
 ```powershell
 python -m pip install -r requirements-dev.txt
@@ -32,16 +39,19 @@ python -m unittest discover -s tests -v
 python -m backend.server
 ```
 
-Do not redirect your game to this backend yet. No system trust, hosts entries or game settings are changed
-by these commands. The project does not ship game assets, client binaries, credentials or private keys.
-Local data and certificates belong in the ignored `local-data/` directory.
+These development commands alone do not redirect a game or modify system trust.
+No game files, proprietary SDK, tokens, keys, saves or databases belong in Git.
 
-## Sources
+## Sources and licensing
 
-Protocol observations: [Dauntless Revived](https://github.com/mixutin/dauntless-revived).
-Architecture reference: [Mystic Paradox](https://github.com/pranav158/Mystic-Paradox).
-The current implementation retains this repository's original Python response helpers and independently
-implements the documented response contracts; it does not contain either project's runtime DLL or game SDK.
-Review and retain applicable licenses and notices before importing upstream code.
+Selected login handlers are adapted from [Mystic Paradox's pinned login.ts](https://github.com/pranav158/Mystic-Paradox/blob/fd795c6434abd63872f4af277c90747239f1ed40/ParadoxBackend/src/routes/login.ts).
+2.1.1 protocol evidence comes from [Dauntless Revived](https://github.com/mixutin/dauntless-revived).
+No upstream runtime DLL, fixed UE4 hook offsets or game SDK is copied.
 
-Not affiliated with or endorsed by Phoenix Labs, Epic Games or either community project.
+The combined source is AGPL-3.0-only: see [LICENSE](LICENSE),
+[NOTICE.md](NOTICE.md) and the retained [additional terms](ADDITIONAL_TERMS.md).
+Mystic Paradox's Dauntless 1.12.0 port and related modifications were developed by
+Pranav Karande. See NOTICE.md for contribution and provenance information.
+
+No warranty. Not affiliated with or endorsed by Phoenix Labs, Epic Games, Mystic Paradox,
+Undaunted or Dauntless Revived.
