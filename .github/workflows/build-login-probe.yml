@@ -31,11 +31,27 @@ jobs:
         run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Login-Probe --paths . --add-data "LICENSE:." --add-data "NOTICE.md:." --add-data "ADDITIONAL_TERMS.md:." tools/probe_entry.py
       - name: Check packaged imports and notices without touching game files
         run: .\dist\Reawakened-Login-Probe.exe --about
+      - name: Check packaged read-only diagnostics
+        shell: pwsh
+        run: |
+          $originalLocal = $env:LOCALAPPDATA
+          $probeRoot = Join-Path $env:RUNNER_TEMP ('read-only-probe-' + [guid]::NewGuid().ToString('N'))
+          try {
+            $env:LOCALAPPDATA = $probeRoot
+            $output = & .\dist\Reawakened-Login-Probe.exe --diagnose
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged diagnosis failed' }
+            $output | Write-Output
+            $json = (($output | Select-Object -Skip 1) -join "`n") | ConvertFrom-Json
+            if ($json.read_only -ne $true -or $json.probe_current.read_status -ne 'not_found') { throw 'Unexpected diagnostic result' }
+            if (Test-Path -LiteralPath $probeRoot) { throw 'Read-only diagnosis created a profile' }
+          } finally {
+            $env:LOCALAPPDATA = $originalLocal
+          }
       - name: Include license, instructions and corresponding source
         shell: pwsh
         run: |
           Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md dist
-          Copy-Item docs/LOGIN_PROBE.md dist
+          Copy-Item docs/LOGIN_PROBE.md,docs/LOGIN_REPORT.md dist
           git archive --format=zip --output=dist/Corresponding-Source.zip HEAD
           Get-FileHash -Algorithm SHA256 dist/*.exe | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
