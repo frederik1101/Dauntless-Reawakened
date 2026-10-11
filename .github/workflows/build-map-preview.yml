@@ -1,0 +1,56 @@
+name: Build stock-client Ramsgate map preview
+on:
+  push:
+    branches: [work/ramsgate-map-preview]
+  pull_request:
+    paths:
+      - 'tools/map_preview_support.py'
+      - 'tools/ramsgate_map_preview.py'
+      - 'backend/map_preview.py'
+      - 'tests/test_map_preview_*.py'
+      - '.github/workflows/build-map-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test and packaging dependencies
+        run: python -m pip install -r requirements-dev.txt 'pyinstaller>=6,<7'
+      - name: Run full repository suite, no proprietary game files
+        run: python -m unittest discover -s tests -v
+      - name: Build config-only preview, no native runtime
+        run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Ramsgate-Preview --paths . tools/ramsgate_map_preview.py
+      - name: Check packaged imports and resource query without a game
+        shell: pwsh
+        run: |
+          & .\dist\Reawakened-Ramsgate-Preview.exe --about
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged about failed' }
+          $old = $env:LOCALAPPDATA
+          $temporaryProfile = Join-Path $env:RUNNER_TEMP ('preview-smoke-' + [guid]::NewGuid().ToString('N'))
+          try {
+            $env:LOCALAPPDATA = $temporaryProfile
+            & .\dist\Reawakened-Ramsgate-Preview.exe --self-test
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged self-test failed' }
+            if (Test-Path $temporaryProfile) { throw 'Self-test created user files' }
+          } finally { $env:LOCALAPPDATA = $old }
+      - name: Include instructions, notices and matching source
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md dist
+          Copy-Item docs/RAMSGATE_MAP_PREVIEW.md dist
+          git archive --format=zip --output=dist/Corresponding-Source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
+          Get-FileHash -Algorithm SHA256 dist/*.exe | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Reawakened-Ramsgate-Map-Preview-Windows
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
