@@ -60,6 +60,15 @@ class ObservationTests(unittest.TestCase):
             for i in range(100):
                 obs.observe(b'{"map":"Map_LoginMenu"}' if i % 2 else b'{"map":"ramsgate_01_persistent"}')
         self.assertEqual(len(logs.output), 16)
+    def test_pre_session_stage_labels_are_bounded(self):
+        obs = MapObservations()
+        obs.stage('account_link', 200)
+        obs.stage('login_queue', 503)
+        stages = obs.report()['backend_stage_counts']
+        self.assertEqual(stages['account_link']['success'], 1)
+        self.assertEqual(stages['login_queue']['other'], 1)
+        self.assertEqual(stages['local_session']['success'], 0)
+
     def test_backend_stage_counts_are_fixed_and_copied(self):
         obs = MapObservations()
         obs.stage('character', 401)
