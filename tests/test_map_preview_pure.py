@@ -60,6 +60,19 @@ class ObservationTests(unittest.TestCase):
             for i in range(100):
                 obs.observe(b'{"map":"Map_LoginMenu"}' if i % 2 else b'{"map":"ramsgate_01_persistent"}')
         self.assertEqual(len(logs.output), 16)
+    def test_backend_stage_counts_are_fixed_and_copied(self):
+        obs = MapObservations()
+        obs.stage('character', 401)
+        obs.stage('character', 200)
+        obs.stage('city_join', 404)
+        obs.stage('private-secret', 200)
+        counts = obs.report()['backend_stage_counts']
+        self.assertEqual(counts['character'], {'success': 1, 'unauthorized': 1, 'other': 0})
+        self.assertEqual(counts['city_join']['other'], 1)
+        self.assertNotIn('private-secret', counts)
+        counts['character']['success'] = 999
+        self.assertEqual(obs.report()['backend_stage_counts']['character']['success'], 1)
+
     def test_report_is_copy(self):
         obs = MapObservations()
         obs.report()['map_report_counts']['ramsgate'] = 55
