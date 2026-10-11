@@ -33,9 +33,28 @@ class MapObservations:
 
     def report(self):
         with self._lock:
+            stages = {k: dict(v) for k, v in self._stages.items()}
+            # A conservative report: success means only that an HTTP response was sent,
+            # not that the client accepted it or that Epic authenticated the player.
+            order = ('account_link', 'login_queue', 'local_session', 'character',
+                     'entitlements', 'city_join')
+            reached = [name for name in order if stages[name]['success']]
+            rejected = [name for name in order if stages[name]['unauthorized']]
+            if not reached:
+                outcome = 'no_successful_login_stage_observed'
+            elif not stages['local_session']['success']:
+                outcome = 'pre_session_responses_only'
+            elif not stages['character']['success']:
+                outcome = 'local_session_response_only'
+            elif not stages['city_join']['success']:
+                outcome = 'character_response_no_city_join'
+            else:
+                outcome = 'city_join_http_response_no_host_proof'
             return {'map_report_counts': dict(self._counts),
                     'ramsgate_self_report_seen': self._counts['ramsgate'] > 0,
-                    'backend_stage_counts': {k: dict(v) for k, v in self._stages.items()},
+                    'backend_stage_counts': stages,
+                    'backend_observation': outcome,
+                    'unauthorized_stage_labels': rejected,
                     'renderer_verified': False, 'game_server_started': False,
                     'client_join_verified': False, 'controllable_player_verified': False}
 
