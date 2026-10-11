@@ -44,6 +44,14 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(self.hosts.read_bytes(), b'127.0.0.1 localhost\n')
         saved = Path(json.loads(self.journal.read_text())['config_after'])
         self.assertEqual((saved/'Engine.ini').read_text(), ENGINE_INI)
+    def test_normal_login_preserves_cooked_default_map(self):
+        install_config(self.config, self.journal, normal_login=True)
+        self.assertEqual((self.config/'Engine.ini').read_bytes(), b'')
+        restore(self.journal)
+        self.assertEqual((self.config/'Engine.ini').read_bytes(), b'original settings')
+        self.assertEqual(self.ca.read_bytes(), b'original CA')
+        self.assertEqual(self.hosts.read_bytes(), b'127.0.0.1 localhost\\n')
+
     def test_wrong_marker_refused(self):
         (self.config/'.reawakened-probe').write_text('wrong')
         with self.assertRaises(ValueError):
