@@ -171,10 +171,53 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
                 print('Share only map-preview-result.json or a screenshot of the game, not the state folder.')
 
 
+
+def offline_identity_self_test() -> dict:
+    """Exercise local-only account/session/character/CITY without launching Dauntless.
+
+    This never asserts Epic authentication or creates a game host.
+    """
+    db = Database(':memory:')
+    try:
+        app = make_application(db, MapObservations())
+        # Lab key is scoped to this in-memory application and never written to disk.
+        issued = app.handle('POST', 'localhost', '/__lab/session',
+                            {'X-Reawakened-Lab-Key': app.lab_key},
+                            b'{"subject":"offline-identity-test"}', secure=True)
+        if issued.status != 200:
+            raise ValueError('Local identity issuance failed')
+        token = issued.payload['payload']['sessiontoken']
+        session = app.sessions.resolve(token)
+        if session is None:
+            raise ValueError('Local session could not be resolved')
+        headers = {'Authorization': 'Bearer ' + token}
+        created = db.create(session.account_id, 'OfflineSlayer', '{}')
+        character = app.handle('GET', 'dauntless-prod.steelyard.ca',
+                               '/character', headers, secure=True)
+        join_body = json.dumps({'playerId': session.account_id, 'gameMode': 'CITY',
+                                'buildId': '682875_2.1.1_shipping'}).encode()
+        join = app.handle('POST', 'mm2-prod.steelyard.ca', '/candidate/join',
+                          headers, join_body, secure=True)
+        if (character.status != 200 or len(character.payload) != 1 or
+                character.payload[0]['id'] != created['id'] or
+                join.status != 200 or join.payload['status'] != 'MATCHING' or
+                'serverInfo' in join.payload):
+            raise ValueError('Offline identity contract failed')
+        if app.handle('GET', 'dauntless-prod.steelyard.ca',
+                      '/character', {}, secure=True).status != 401:
+            raise ValueError('Missing authorization was incorrectly accepted')
+        return {'offline_identity': 'passed', 'local_character': 'passed',
+                'city_request': 'matching_no_host',
+                'epic_authentication': 'not_tested',
+                'game_client': 'not_launched', 'game_server': 'not_started'}
+    finally:
+        db.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
-    for name in ('about', 'check', 'run', 'restore', 'self-test'):
+    for name in ('about', 'check', 'run', 'restore', 'self-test', 'offline-identity-test'):
         modes.add_argument('--' + name, action='store_true')
     parser.add_argument('--game-root', type=Path, default=Path(r'C:\Program Files\Epic Games\Dauntless'))
     parser.add_argument('--seconds', type=int, default=120)
@@ -187,6 +230,8 @@ def main():
     try:
         if args.about:
             print(NOTICE + '\n' + ABOUT)
+        elif args.offline_identity_test:
+            print(json.dumps(offline_identity_self_test(), indent=2))
         elif args.self_test:
             from tools.map_preview_support import process_memory_bytes
             from types import SimpleNamespace
