@@ -137,7 +137,8 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
         logger.setLevel(logging.INFO)
         logger.addHandler(handler)
         logger.info('MAP_PREVIEW_BEGIN revision=%s game_server=false mode=%s', REVISION,
-                    'normal_login' if normal_login else 'map_preview')
+                    'external_server' if external_server else
+                    ('normal_login' if normal_login else 'map_preview'))
         print('Starting original client against standalone local API.' if external_server else
               'Starting original client with normal login map.' if normal_login else
               'Starting original client with temporary Ramsgate default map. Keep this window open.')
@@ -172,7 +173,10 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
                 report = {'revision': REVISION, 'test_kind':
                           'standalone_api_client_observation' if external_server else
                           ('normal_login_city_observation' if normal_login else 'stock_client_map_preview'),
-                          **outcome, **observations.report(), 'restored': restored,
+                          **outcome, **observations.report(),
+                          'backend_observations_collected_here': not external_server,
+                          'external_server_logs_required': external_server,
+                          'restored': restored,
                           'exit_code': process.poll() if process is not None else None}
                 with (active / 'map-preview-result.json').open('x', encoding='utf-8') as stream:
                     json.dump(report, stream, indent=2)
