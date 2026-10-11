@@ -31,8 +31,8 @@ class MapObservations:
 
 def make_application(database, observations):
     from .application import target
-    from .mystic_login_port import LoginPortApplication
-    class MapPreviewApplication(LoginPortApplication):
+    from .ramsgate_application import RamsgateApplication
+    class MapPreviewApplication(RamsgateApplication):
         def handle(self, method, host, path, headers, body=b'', *, secure=False):
             # Observe only HTTPS heartbeat requests without a browser Origin.
             # This is client self-reporting, not authenticated proof of world load.
