@@ -221,6 +221,17 @@ class BackendTests(unittest.TestCase):
                 thread.join(6)
 
 
+class ExternalServerModeTests(unittest.TestCase):
+    def test_external_mode_requires_normal_login_before_file_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'game'
+            home = Path(tmp) / 'state'
+            with self.assertRaisesRegex(ValueError, 'requires normal login'):
+                preview.run_preview(root, home, 120, external_server=True)
+            self.assertFalse(root.exists())
+            self.assertFalse(home.exists())
+
+
 class RunnerTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
