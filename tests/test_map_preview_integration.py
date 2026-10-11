@@ -146,6 +146,53 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(result['game_client'], 'not_launched')
         self.assertEqual(result['game_server'], 'not_started')
 
+    def test_persistent_local_account_character_and_city_after_backend_restart(self):
+        # A fresh server process must find the same character, but must not
+        # reuse the previous process's session token or invent a game host.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'normal-login.sqlite3'
+            db1 = Database(path)
+            try:
+                app1 = make_application(db1, MapObservations())
+                app1.lab_key = 'restart-test-only'
+                issued = app1.handle('POST', 'localhost', '/__lab/session',
+                                     {'X-Reawakened-Lab-Key': 'restart-test-only'},
+                                     b'{"subject":"persistent-local-slayer"}', secure=True)
+                self.assertEqual(issued.status, 200)
+                token1 = issued.payload['payload']['sessiontoken']
+                session1 = app1.sessions.resolve(token1)
+                created = db1.create(session1.account_id, 'RamsgateSlayer', '{}')
+            finally:
+                db1.close()
+            db2 = Database(path)
+            try:
+                app2 = make_application(db2, MapObservations())
+                old_headers = {'Authorization': 'Bearer ' + token1}
+                self.assertEqual(app2.handle('GET', 'dauntless-prod.steelyard.ca',
+                                             '/character', old_headers, secure=True).status, 401)
+                app2.lab_key = 'restart-test-only'
+                issued2 = app2.handle('POST', 'localhost', '/__lab/session',
+                                      {'X-Reawakened-Lab-Key': 'restart-test-only'},
+                                      b'{"subject":"persistent-local-slayer"}', secure=True)
+                self.assertEqual(issued2.status, 200)
+                token2 = issued2.payload['payload']['sessiontoken']
+                self.assertNotEqual(token1, token2)
+                headers = {'Authorization': 'Bearer ' + token2}
+                characters = app2.handle('GET', 'dauntless-prod.steelyard.ca',
+                                          '/character', headers, secure=True)
+                self.assertEqual(characters.status, 200)
+                self.assertEqual([c['id'] for c in characters.payload], [created['id']])
+                session2 = app2.sessions.resolve(token2)
+                body = json.dumps({'playerId': session2.account_id, 'gameMode': 'CITY',
+                                   'buildId': '682875_2.1.1_shipping'}).encode()
+                city = app2.handle('POST', 'mm2-prod.steelyard.ca', '/candidate/join',
+                                   headers, body, secure=True)
+                self.assertEqual(city.status, 200)
+                self.assertEqual(city.payload['status'], 'MATCHING')
+                self.assertNotIn('serverInfo', city.payload)
+            finally:
+                db2.close()
+
     def test_wrong_service_not_observed(self):
         self.app.handle('POST','auth-prod.steelyard.ca','/heartbeat',{},b'{"map":"ramsgate_01_persistent"}',secure=True)
         self.assertFalse(self.obs.report()['ramsgate_self_report_seen'])
