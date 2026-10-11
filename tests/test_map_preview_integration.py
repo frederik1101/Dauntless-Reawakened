@@ -50,7 +50,7 @@ class ConfigTests(unittest.TestCase):
         restore(self.journal)
         self.assertEqual((self.config/'Engine.ini').read_bytes(), b'original settings')
         self.assertEqual(self.ca.read_bytes(), b'original CA')
-        self.assertEqual(self.hosts.read_bytes(), b'127.0.0.1 localhost\\n')
+        self.assertEqual(self.hosts.read_bytes(), b'127.0.0.1 localhost\n')
 
     def test_wrong_marker_refused(self):
         (self.config/'.reawakened-probe').write_text('wrong')
