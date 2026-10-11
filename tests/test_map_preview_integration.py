@@ -119,6 +119,24 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.app.handle('GET', 'dauntless-prod.steelyard.ca',
                          '/character', {}, secure=True).status, 401)
 
+    def test_isolated_normal_login_database_survives_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'normal-login.sqlite3'
+            db1 = Database(path)
+            try:
+                account = db1.account('eos-research:synthetic-subject')['accountId']
+                created = db1.create(account, 'PersistentSlayer', '{}')
+            finally:
+                db1.close()
+            db2 = Database(path)
+            try:
+                same = db2.account('eos-research:synthetic-subject')['accountId']
+                self.assertEqual(same, account)
+                self.assertEqual(db2.get(same)[0]['id'], created['id'])
+                self.assertEqual(db2.get(db2.account('lab:other')['accountId']), [])
+            finally:
+                db2.close()
+
     def test_wrong_service_not_observed(self):
         self.app.handle('POST','auth-prod.steelyard.ca','/heartbeat',{},b'{"map":"ramsgate_01_persistent"}',secure=True)
         self.assertFalse(self.obs.report()['ramsgate_self_report_seen'])
