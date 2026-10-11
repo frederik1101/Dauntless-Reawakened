@@ -54,7 +54,10 @@ def pending(home: Path) -> bool:
     return json.loads(journal.read_text(encoding='utf-8')).get('restored') is not True
 
 
-def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = False) -> None:
+def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = False,
+                external_server: bool = False) -> None:
+    if external_server and not normal_login:
+        raise ValueError('External server mode requires normal login')
     if type(seconds) is not int or not 30 <= seconds <= 180:
         raise ValueError('Map preview duration must be 30 to 180 seconds')
     info = check(root)
@@ -84,7 +87,8 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
     observations = MapObservations()
     # Normal login needs the same local character on successive test launches.
     # Keep it separate from the legacy research DB; direct map preview stays ephemeral.
-    db = Database(home / 'normal-login.sqlite3' if normal_login else ':memory:')
+    db = Database(':memory:' if external_server else
+                  (home / 'normal-login.sqlite3' if normal_login else ':memory:'))
     app = make_application(db, observations)
     servers, workers = [], []
     process = journal = handler = None
@@ -92,12 +96,15 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
     outcome = {'termination': 'setup_failed'}
     logger = logging.getLogger('reawakened.requests')
     try:
-        tls = generate(home / ('tls-' + str(time.time_ns())))
+        tls = (Path(os.environ['LOCALAPPDATA']) / 'DauntlessReawakenedServer/tls'
+               if external_server else generate(home / ('tls-' + str(time.time_ns()))))
         ctx = tls_context(tls / 'server.pem', tls / 'server-key.pem')
-        # Bind all listeners before editing configuration. Busy ports mean no edits.
-        for port, context in ((443, ctx), (80, None)):
-            for ip in ('127.0.0.1', '::1'):
-                servers.append(make_server(app, ip, port, context))
+        # In external mode the standalone server already owns 80/443.
+        # No second backend may intercept the game's requests.
+        if not external_server:
+            for port, context in ((443, ctx), (80, None)):
+                for ip in ('127.0.0.1', '::1'):
+                    servers.append(make_server(app, ip, port, context))
         for server in servers:
             worker = threading.Thread(target=server.serve_forever,
                                       kwargs={'poll_interval': .1}, daemon=True)
@@ -131,7 +138,8 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
         logger.addHandler(handler)
         logger.info('MAP_PREVIEW_BEGIN revision=%s game_server=false mode=%s', REVISION,
                     'normal_login' if normal_login else 'map_preview')
-        print('Starting original client with normal login map.' if normal_login else
+        print('Starting original client against standalone local API.' if external_server else
+              'Starting original client with normal login map.' if normal_login else
               'Starting original client with temporary Ramsgate default map. Keep this window open.')
         process = subprocess.Popen([str(exe), '-EpicPortal', '-AUTH_TYPE=accountportal',
                     '-AUTH_LOGIN=unused', '-AUTH_PASSWORD=unused'], cwd=exe.parent,
@@ -162,7 +170,8 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
                 handler.close()
             if journal is not None:
                 report = {'revision': REVISION, 'test_kind':
-                          'normal_login_city_observation' if normal_login else 'stock_client_map_preview',
+                          'standalone_api_client_observation' if external_server else
+                          ('normal_login_city_observation' if normal_login else 'stock_client_map_preview'),
                           **outcome, **observations.report(), 'restored': restored,
                           'exit_code': process.poll() if process is not None else None}
                 with (active / 'map-preview-result.json').open('x', encoding='utf-8') as stream:
@@ -221,10 +230,14 @@ def main():
         modes.add_argument('--' + name, action='store_true')
     parser.add_argument('--game-root', type=Path, default=Path(r'C:\Program Files\Epic Games\Dauntless'))
     parser.add_argument('--seconds', type=int, default=120)
+    parser.add_argument('--external-server', action='store_true',
+                        help='Use running standalone API on loopback 80/443; requires --normal-login')
     parser.add_argument('--normal-login', action='store_true',
                         help='Keep original login map; observe authenticated CITY requests without a host')
     args = parser.parse_args()
     print('Preview revision:', REVISION)
+    if args.external_server and not args.normal_login:
+        parser.error('--external-server requires --normal-login')
     if args.normal_login and not args.run:
         parser.error('--normal-login requires --run')
     try:
@@ -265,7 +278,8 @@ def main():
                 print('Map preview changes restored.')
             else:
                 run_preview(args.game_root.absolute(), home, args.seconds,
-                            normal_login=args.normal_login)
+                            normal_login=args.normal_login,
+                            external_server=args.external_server)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         print('STOP:', exc, file=sys.stderr)
         print('Keep all backups. If this preview changed files, use this EXE --restore with the game closed.', file=sys.stderr)
