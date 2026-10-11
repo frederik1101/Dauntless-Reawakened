@@ -60,6 +60,28 @@ class ObservationTests(unittest.TestCase):
             for i in range(100):
                 obs.observe(b'{"map":"Map_LoginMenu"}' if i % 2 else b'{"map":"ramsgate_01_persistent"}')
         self.assertEqual(len(logs.output), 16)
+    def test_backend_observation_never_claims_gameplay(self):
+        obs = MapObservations()
+        self.assertEqual(obs.report()['backend_observation'], 'no_successful_login_stage_observed')
+        obs.stage('account_link', 200)
+        self.assertEqual(obs.report()['backend_observation'], 'pre_session_responses_only')
+        obs.stage('local_session', 200)
+        self.assertEqual(obs.report()['backend_observation'], 'local_session_response_only')
+        obs.stage('character', 200)
+        self.assertEqual(obs.report()['backend_observation'], 'character_response_no_city_join')
+        obs.stage('city_join', 200)
+        report = obs.report()
+        self.assertEqual(report['backend_observation'], 'city_join_http_response_no_host_proof')
+        self.assertIs(report['client_join_verified'], False)
+        self.assertIs(report['controllable_player_verified'], False)
+
+    def test_backend_unauthorized_labels_have_no_private_values(self):
+        obs = MapObservations()
+        obs.stage('entitlements', 401)
+        obs.stage('unknown-sensitive-route', 401)
+        self.assertEqual(obs.report()['unauthorized_stage_labels'], ['entitlements'])
+        self.assertNotIn('unknown-sensitive-route', str(obs.report()))
+
     def test_pre_session_stage_labels_are_bounded(self):
         obs = MapObservations()
         obs.stage('account_link', 200)
