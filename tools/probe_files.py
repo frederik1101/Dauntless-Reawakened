@@ -60,8 +60,16 @@ def prepare(state: Path, ca: Path, hosts: Path, config: Path,
         raise ValueError('Original hosts file must exist')
     if ca.exists() and not ca.is_file():
         raise ValueError('CA path exists but is not a regular file')
-    if not ca.exists() and not ca.parent.is_dir():
-        raise ValueError('CA parent directory is missing; refusing to create directories')
+    missing_dirs = []
+    if not ca.exists():
+        parent = ca.parent
+        while not parent.exists():
+            missing_dirs.append(parent)
+            parent = parent.parent
+        if not parent.is_dir():
+            raise ValueError('CA ancestor is not a directory')
+        if len(missing_dirs) > 3:
+            raise ValueError('Too many missing CA parent directories; refusing unsafe creation')
     if config.exists() and not config.is_dir():
         raise ValueError('Config path must be a directory')
     if b'-----BEGIN CERTIFICATE-----' not in public_ca:
@@ -84,7 +92,8 @@ def prepare(state: Path, ca: Path, hosts: Path, config: Path,
             stream.write(value)
     record = {'version': 1, 'marker': marker, 'ca': str(ca), 'hosts': str(hosts),
               'config': str(config), 'config_backup': str(backup), 'config_after': str(after),
-              'config_existed': config.exists(), 'ca_existed': ca_existed, 'restored': False}
+              'config_existed': config.exists(), 'ca_existed': ca_existed,
+              'ca_created_dirs': [str(p) for p in missing_dirs], 'restored': False}
     journal = state / 'journal.json'
     journal_write(journal, record)
     try:
@@ -93,6 +102,8 @@ def prepare(state: Path, ca: Path, hosts: Path, config: Path,
             config.rename(backup)
         config.mkdir(parents=True, exist_ok=False)
         (config / MARKER).write_text(marker, encoding='ascii')
+        for directory in reversed(missing_dirs):
+            directory.mkdir(exist_ok=False)
         ca.write_bytes(original_ca + ca_block)
         hosts.write_bytes(original_hosts + host_block)
     except BaseException:
@@ -149,5 +160,13 @@ def restore(journal: Path) -> None:
         raise ValueError('Cannot restore config safely')
     if backup.exists():
         backup.rename(config)
+    for directory_name in record.get('ca_created_dirs', []):
+        directory = Path(directory_name)
+        _plain_path(directory)
+        if directory.exists():
+            try:
+                directory.rmdir()  # Only remove our empty directory; never delete other files.
+            except OSError as exc:
+                raise ValueError('Temporary CA directory contains other files; retained for review') from exc
     record['restored'] = True
     journal_write(journal, record)
