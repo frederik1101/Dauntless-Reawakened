@@ -47,6 +47,31 @@ class PostLoginTests(unittest.TestCase):
             self.headers if headers is None else headers,
             b'' if payload is None else encoded(payload),secure=secure)
 
+    def test_two_login_exchanges_preserve_character_and_version(self):
+        """Reproduce two consecutive research logins without inventing Epic auth."""
+        original = self.db.get(self.account)
+        self.assertEqual(len(original), 1)
+        first = self.call('GET', 'dauntless-prod', '/character')
+        self.assertEqual(first.status, 200)
+        self.assertEqual(first.payload, original)
+        # A second login may rotate the local token, but must not create a
+        # different account or silently reset the character.
+        issued = self.app.handle(
+            'PUT', 'gamesession-prod.steelyard.ca', '/gamesession/epiceos',
+            {'Authorization': 'Bearer ' + jwt(self.epic)}, secure=True)
+        self.assertEqual(issued.status, 200)
+        token2 = issued.payload['payload']['sessiontoken']
+        self.assertNotEqual(token2, self.token)
+        session2 = self.app.sessions.resolve(token2)
+        self.assertEqual(session2.account_id, self.account)
+        self.assertEqual(session2.linked_epic_id, self.epic)
+        second_headers = {'Authorization': 'Bearer ' + token2}
+        second = self.call('GET', 'dauntless-prod', '/character',
+                           headers=second_headers)
+        self.assertEqual(second.status, 200)
+        self.assertEqual(second.payload, original)
+        self.assertEqual(self.db.get(self.account), original)
+
     def test_real_exchange_records_distinct_ids(self):
         self.assertNotEqual(self.account,self.epic)
         self.assertEqual(self.session.linked_epic_id,self.epic)
