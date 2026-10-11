@@ -71,7 +71,9 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
         raise ValueError('Unrecognised map preview state; retained for review')
     print('NORMAL LOGIN + CITY REQUEST TEST; no game host or playable character.' if normal_login else NOTICE)
     print('Temporary changes: Phoenix hosts entries, this game CA, and WindowsClient config.')
-    print('Original game EXE, Epic domains, Windows trust and existing character database are unchanged.')
+    print('Original game EXE, Epic domains, Windows trust and previous research database are unchanged.')
+    if normal_login:
+        print('This mode stores local character data in a separate persistent normal-login.sqlite3 database.')
     print('The local backend retains its existing authentication and unknown-route errors.')
     if input('Type MAP to consent, or Enter to cancel: ').strip() != 'MAP':
         print('Cancelled. Nothing changed.')
@@ -80,7 +82,9 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
     if active.exists():
         active.rename(home / ('completed-' + str(time.time_ns())))
     observations = MapObservations()
-    db = Database(':memory:')  # Never opens, seeds or updates the user's persistent character DB.
+    # Normal login needs the same local character on successive test launches.
+    # Keep it separate from the legacy research DB; direct map preview stays ephemeral.
+    db = Database(home / 'normal-login.sqlite3' if normal_login else ':memory:')
     app = make_application(db, observations)
     servers, workers = [], []
     process = journal = handler = None
