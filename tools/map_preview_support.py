@@ -17,7 +17,7 @@ ENGINE_INI = (f'[/Script/EngineSettings.GameMapsSettings]\nGameDefaultMap={MAP}\
               '\n[SystemSettings]\nr.Streaming.PoolSize=400\nr.Streaming.LimitPoolSizeToVRAM=1\n')
 
 
-def install_config(config: Path, journal: Path) -> None:
+def install_config(config: Path, journal: Path, *, normal_login: bool = False) -> None:
     """Write only inside the fresh directory already owned by the rollback journal."""
     from tools.probe_files import MARKER, _plain_path
     config, journal = config.absolute(), journal.absolute()
@@ -30,7 +30,9 @@ def install_config(config: Path, journal: Path) -> None:
         raise ValueError('Map preview requires its active rollback journal')
     # Exclusive creation: never append to user config or overwrite an unknown file.
     with (config / 'Engine.ini').open('x', encoding='ascii', newline='\n') as stream:
-        stream.write(ENGINE_INI)
+        # Normal-login mode keeps the game's cooked default login map.
+        # The explicit empty Engine.ini prevents carrying a prior Ramsgate override.
+        stream.write('' if normal_login else ENGINE_INI)
 
 
 def heartbeat_map(body: bytes) -> str:
