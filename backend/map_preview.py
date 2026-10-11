@@ -11,6 +11,8 @@ class MapObservations:
         self._counts = dict.fromkeys(('ramsgate', 'login_menu', 'unknown', 'invalid'), 0)
         self._last = None
         self._changes = 0
+        self._stages = {name: {'success': 0, 'unauthorized': 0, 'other': 0} for name in
+                        ('local_session', 'character', 'entitlements', 'city_join')}
 
     def observe(self, body):
         label = heartbeat_map(body)
@@ -21,10 +23,19 @@ class MapObservations:
                 self._last = label
                 logging.getLogger('reawakened.requests').info('MAP_SELF_REPORT label=%s', label)
 
+    def stage(self, name, status):
+        if name not in self._stages:
+            return
+        category = 'success' if status == 200 else ('unauthorized' if status == 401 else 'other')
+        with self._lock:
+            counts = self._stages[name]
+            counts[category] = min(counts[category] + 1, 100000)
+
     def report(self):
         with self._lock:
             return {'map_report_counts': dict(self._counts),
                     'ramsgate_self_report_seen': self._counts['ramsgate'] > 0,
+                    'backend_stage_counts': {k: dict(v) for k, v in self._stages.items()},
                     'renderer_verified': False, 'game_server_started': False,
                     'client_join_verified': False, 'controllable_player_verified': False}
 
@@ -43,6 +54,15 @@ def make_application(database, observations):
                     service, endpoint = '', ''
                 if (service, endpoint) == ('tracking-prod', '/heartbeat'):
                     observations.observe(body)
-            return super().handle(method, host, path, headers, body, secure=secure)
+            response = super().handle(method, host, path, headers, body, secure=secure)
+            # Record fixed route labels only. Never retain raw paths, headers or tokens.
+            stages = {'epiceos-session-research': 'local_session',
+                      'character': 'character', 'entitlementsv2': 'entitlements',
+                      'ramsgate-join': 'city_join'}
+            if secure:
+                label = stages.get(response.route)
+                if label:
+                    observations.stage(label, response.status)
+            return response
     return MapPreviewApplication(database, allow_unverified_eos_sub=True,
                                  maintenance_response={'isMaintenance': False})
