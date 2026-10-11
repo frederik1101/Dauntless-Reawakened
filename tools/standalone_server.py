@@ -30,7 +30,7 @@ def default_home() -> Path:
 
 
 def serve(home: Path, port: int, *, stop: threading.Event | None = None,
-          client_ports: bool = False) -> None:
+          client_ports: bool = False, diagnostic: bool = False) -> None:
     if type(port) is not int or not 1024 <= port <= 65535:
         raise ValueError('Choose an unprivileged port (1024-65535)')
     home = home.absolute()
@@ -58,7 +58,8 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
             (ip, listen_port, security) for listen_port, security in ((443, context), (80, None))
             for ip in ('127.0.0.1', '::1')]
         for ip, listen_port, tls_context_or_none in endpoints:
-            servers.append(make_server(app, ip, listen_port, tls_context_or_none))
+            servers.append(make_server(app, ip, listen_port, tls_context_or_none,
+                                       diagnostic=diagnostic))
         for server in servers:
             worker = threading.Thread(target=server.serve_forever,
                                       kwargs={'poll_interval': 0.1}, daemon=True)
@@ -114,6 +115,8 @@ def main() -> int:
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--home', type=Path)
     parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('--diagnostic', action='store_true',
+                        help='Extra value-free JSON shape, timing and session diagnostics')
     parser.add_argument('--client-ports', action='store_true',
                         help='Bind loopback HTTP 80 and HTTPS 443 for a separate reversible client test')
     args = parser.parse_args()
@@ -125,7 +128,8 @@ def main() -> int:
             logging.Formatter.converter = time.gmtime
             logging.basicConfig(level=logging.INFO, format='%(asctime)sZ %(levelname)s %(message)s',
                                 datefmt='%Y-%m-%dT%H:%M:%S')
-            serve(args.home or default_home(), args.port, client_ports=args.client_ports)
+            serve(args.home or default_home(), args.port, client_ports=args.client_ports,
+                  diagnostic=args.diagnostic)
     except (OSError, ValueError) as exc:
         parser.exit(1, 'Server stopped: %s\n' % exc)
     return 0
