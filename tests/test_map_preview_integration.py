@@ -88,6 +88,29 @@ class BackendTests(unittest.TestCase):
         reply = self.app.handle('GET','dauntless-prod.steelyard.ca','/character',{},secure=True)
         self.assertEqual(reply.status,401)
         self.assertFalse(self.app.handle('GET','localhost','/health',{}).payload['game_compatible'])
+    def test_authenticated_city_join_waits_for_real_host(self):
+        self.app.lab_key = 'map-test-key'
+        issued = self.app.handle('POST', 'localhost', '/__lab/session',
+                                 {'X-Reawakened-Lab-Key': 'map-test-key'},
+                                 b'{"subject":"map-test"}', secure=True)
+        self.assertEqual(issued.status, 200)
+        token = issued.payload['payload']['sessiontoken']
+        session = self.app.sessions.resolve(token)
+        self.db.create(session.account_id, 'MapSlayer', '{}')
+        headers = {'Authorization': 'Bearer ' + token}
+        self.assertEqual(self.app.handle('GET', 'dauntless-prod.steelyard.ca',
+                         '/character', headers, secure=True).status, 200)
+        body = json.dumps({'playerId': session.account_id, 'gameMode': 'CITY',
+                           'buildId': '682875_2.1.1_shipping'}).encode()
+        reply = self.app.handle('POST', 'mm2-prod.steelyard.ca', '/candidate/join',
+                                headers, body, secure=True)
+        self.assertEqual(reply.status, 200)
+        self.assertEqual(reply.payload['status'], 'MATCHING')
+        self.assertNotIn('serverInfo', reply.payload)
+        self.assertFalse(self.obs.report()['game_server_started'])
+        self.assertEqual(self.app.handle('GET', 'dauntless-prod.steelyard.ca',
+                         '/character', {}, secure=True).status, 401)
+
     def test_wrong_service_not_observed(self):
         self.app.handle('POST','auth-prod.steelyard.ca','/heartbeat',{},b'{"map":"ramsgate_01_persistent"}',secure=True)
         self.assertFalse(self.obs.report()['ramsgate_self_report_seen'])
