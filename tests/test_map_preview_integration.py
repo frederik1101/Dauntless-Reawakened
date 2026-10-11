@@ -137,6 +137,15 @@ class BackendTests(unittest.TestCase):
             finally:
                 db2.close()
 
+    def test_offline_identity_smoke_without_epic_or_game(self):
+        result = preview.offline_identity_self_test()
+        self.assertEqual(result['offline_identity'], 'passed')
+        self.assertEqual(result['local_character'], 'passed')
+        self.assertEqual(result['city_request'], 'matching_no_host')
+        self.assertEqual(result['epic_authentication'], 'not_tested')
+        self.assertEqual(result['game_client'], 'not_launched')
+        self.assertEqual(result['game_server'], 'not_started')
+
     def test_wrong_service_not_observed(self):
         self.app.handle('POST','auth-prod.steelyard.ca','/heartbeat',{},b'{"map":"ramsgate_01_persistent"}',secure=True)
         self.assertFalse(self.obs.report()['ramsgate_self_report_seen'])
