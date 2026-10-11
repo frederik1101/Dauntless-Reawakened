@@ -18,6 +18,10 @@ import json
 from .application import Application, Response, bearer, target
 from .contract import linked_account
 from .login_routes import is_eos_account_link
+from .inventory_migration import (
+    parse_migration_path, is_empty_migration_body, no_migration_response,
+    SOURCE_URL as INVENTORY_SOURCE_URL,
+)
 
 SOURCE_URL = ('https://github.com/pranav158/Mystic-Paradox/blob/'
               'fd795c6434abd63872f4af277c90747239f1ed40/ParadoxBackend/src/routes/login.ts')
@@ -61,7 +65,9 @@ class LoginPortApplication(Application):
             result = super().handle(method, host, path, headers, body, secure=secure)
             payload = {**result.payload, 'experimental_login_port': True,
                        'maintenance_candidate_enabled': self.maintenance_response is not None,
-                       'source_url': SOURCE_URL}
+                       'source_url': SOURCE_URL,
+                       'inventory_migration_port_enabled': True,
+                       'inventory_migration_source': INVENTORY_SOURCE_URL}
             # Never promotes prototype health to verified game compatibility.
             return Response(result.status, payload, result.route)
         if (method, service, endpoint) == ('GET', 'local', '/__lab/notices'):
@@ -81,6 +87,10 @@ class LoginPortApplication(Application):
             if not secure:
                 return Response(503, route='candidate-account-link-epiceos')
             return Response(200, linked_account(), 'candidate-account-link-epiceos')
+        if method == 'POST' and service == 'dauntless-prod':
+            migration = parse_migration_path(endpoint)
+            if migration is not None:
+                return self._inventory_migration(migration, lower, body, secure)
         label = PORT_ROUTES.get((method, service, endpoint))
         if label is None:
             return super().handle(method, host, path, headers, body, secure=secure)
@@ -116,3 +126,32 @@ class LoginPortApplication(Application):
             return Response(401, route=label)
         except (KeyError, ValueError, TypeError, RecursionError):
             return Response(400, route=label)
+
+    def _inventory_migration(self, request, headers, body, secure):
+        """Cross-version gate for this fresh local profile, NOT an item write.
+
+        Source: Mystic Paradox inventory.ts (pinned in inventory_migration.py).
+        No external inventory exists in this research database to upgrade.
+        No data is created, changed, granted or deleted by this endpoint.
+        """
+        label = 'ported-inventory-migration-none'
+        if not secure:
+            return Response(503, route=label)
+        try:
+            session = self.sessions.resolve(bearer(headers))
+            if session is None:
+                raise PermissionError()
+            if request.character_id:
+                if not self.database.owns_character(session.account_id, request.character_id):
+                    return Response(404, route='inventory-migration-character-not-owned')
+            elif len(self.database.get(session.account_id)) > 1:
+                # The upstream permits an empty character slot. Do not silently
+                # choose one when more than one local character could be intended.
+                return Response(409, route='inventory-migration-character-ambiguous')
+            if not is_empty_migration_body(body):
+                # We have not observed the user's body. Preserve unknown payloads
+                # as an explicit error instead of claiming a mutation succeeded.
+                return Response(422, route='inventory-migration-body-unsupported')
+            return Response(200, no_migration_response(), label)
+        except PermissionError:
+            return Response(401, route=label)

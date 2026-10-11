@@ -49,7 +49,7 @@ def make_handler(app: Application, *, secure: bool = False):
                 service, endpoint = target(headers.get('Host', ''), getattr(self, 'path', ''))
             except (ValueError, TypeError):
                 service, endpoint = 'invalid', ''
-            label = describe_request(service, endpoint)
+            label = describe_request(service, endpoint, method=method)
             LOG.info('method=%s route=%s status=%d service=%s endpoint=%s transport=%s route_key=%s',
                      method, response.route, response.status, label.service, label.endpoint,
                      'https' if secure else 'http', label.route_key)

@@ -37,3 +37,15 @@ The gameplay runtime, launcher artwork and branding of upstream projects are not
 
 Corresponding source, tests and build instructions:
 https://github.com/frederik1101/Dauntless-Reawakened
+
+## Reawakened modification — 11 October 2026
+
+backend/inventory_migration.py and the inventory branch of LoginPortApplication
+adapt the inventory migration gate from Mystic Paradox inventory.ts. The NONE
+response is retained; local session/character ownership, bounded parsing and
+empty-body restrictions are added. No inventory transaction implementation or
+runtime is imported. The existing Section 7 terms and attribution apply to this
+upstream material too. Source:
+https://github.com/pranav158/Mystic-Paradox/blob/fcf915cb918edbe9f030d03b62c94f4879dc655a/ParadoxBackend/src/routes/inventory.ts
+
+See docs/INVENTORY_MIGRATION_PORT.md for evidence, differences, tests and limitations.

@@ -3,5 +3,5 @@
 from tools.login_probe import main
 
 if __name__ == '__main__':
-    print('Probe revision: login-route-diagnostics-20261011.1', flush=True)
+    print('Probe revision: inventory-migration-20261011.1', flush=True)
     raise SystemExit(main())

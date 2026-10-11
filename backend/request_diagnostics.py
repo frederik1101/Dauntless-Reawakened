@@ -81,7 +81,7 @@ class RequestLabel:
     route_key: str = '-'
 
 
-def describe_request(service: str, endpoint: str) -> RequestLabel:
+def describe_request(service: str, endpoint: str, method: str | None = None) -> RequestLabel:
     """Accept an already-routed path, but defensively strip queries/fragments too.
 
     No unrecognised segment is ever returned. Malformed and excessive input gets
@@ -98,6 +98,16 @@ def describe_request(service: str, endpoint: str) -> RequestLabel:
         return RequestLabel(service, '<invalid>')
     trailing = path.endswith('/') and path != '/'
     candidate = path[:-1] if trailing else path
+    # POST's slots have DIFFERENT meanings from GET, according to inventory.ts.
+    # This is classification only: malformed/unsupported payloads still fail.
+    if service == 'dauntless-prod' and re.fullmatch(r'/inventory/[^/]*/[^/]+', candidate):
+        if method == 'POST':
+            template = '/inventory/{character}/{build}'
+        elif method == 'GET':
+            template = '/inventory/{account}/{character}'
+        else:
+            template = '/inventory/{first}/{second}'
+        return RequestLabel(service, template + ('/' if trailing else ''))
     for pattern, template in _RULES.get(service, ()):
         if pattern.fullmatch(candidate):
             return RequestLabel(service, template + ('/' if trailing else ''))
