@@ -60,6 +60,28 @@ class ProbeFilesTests(unittest.TestCase):
         self.assertTrue(self.ca.exists())
         self.assertFalse(json.loads(journal.read_text())['restored'])
 
+    def test_missing_ca_directories_are_restored(self):
+        nested = self.root / 'Engine' / 'Content' / 'Certificates'
+        self.ca = nested / 'cacert.pem'
+        journal = self.apply()
+        self.assertTrue(self.ca.is_file())
+        self.assertTrue(nested.is_dir())
+        restore(journal)
+        self.assertFalse(self.ca.exists())
+        self.assertFalse((self.root / 'Engine').exists())
+        self.assertEqual(self.hosts.read_bytes(), self.original_hosts)
+        self.assertEqual((self.config / 'Engine.ini').read_bytes(), b'original Revived settings')
+
+    def test_missing_ca_directory_with_unrelated_file_is_preserved(self):
+        nested = self.root / 'Engine' / 'Content' / 'Certificates'
+        self.ca = nested / 'cacert.pem'
+        journal = self.apply()
+        (nested / 'unrelated.txt').write_text('keep me', encoding='utf-8')
+        with self.assertRaises(ValueError):
+            restore(journal)
+        self.assertTrue((nested / 'unrelated.txt').exists())
+        self.assertFalse(json.loads(journal.read_text())['restored'])
+
     def test_second_restore_is_idempotent(self):
         journal = self.apply()
         restore(journal)
