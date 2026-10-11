@@ -43,7 +43,9 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
     servers = []
     workers = []
     try:
-        app = RamsgateApplication(database, allow_unverified_eos_sub=False,
+        # Client research mode matches the old preview's local-only EOS-sub lookup.
+        # It does NOT validate Epic tokens or prove account ownership.
+        app = RamsgateApplication(database, allow_unverified_eos_sub=client_ports,
                                   maintenance_response={'isMaintenance': False})
         # Bind every requested listener before starting any worker.
         endpoints = [('127.0.0.1', port, context)] if not client_ports else [
@@ -61,6 +63,7 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         print('LOCAL API ONLY. No Epic login, native gameplay host, Ramsgate join or playable character.', flush=True)
         if client_ports:
             print('CLIENT PORTS READY on loopback 80/443. No game redirect performed.', flush=True)
+            print('WARNING: EOS-sub is an UNVERIFIED local lookup key, not Epic authentication.', flush=True)
         try:
             (stop or threading.Event()).wait()
         except KeyboardInterrupt:
