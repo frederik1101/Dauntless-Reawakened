@@ -6,6 +6,7 @@ on:
       - 'tools/standalone_server.py'
       - 'tests/test_standalone_server.py'
       - '.github/workflows/build-standalone-server.yml'
+      - 'docs/STANDALONE_LOCAL_SERVER.md'
   workflow_dispatch:
 permissions:
   contents: read
