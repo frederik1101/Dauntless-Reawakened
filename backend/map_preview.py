@@ -12,7 +12,7 @@ class MapObservations:
         self._last = None
         self._changes = 0
         self._stages = {name: {'success': 0, 'unauthorized': 0, 'other': 0} for name in
-                        ('local_session', 'character', 'entitlements', 'city_join')}
+                        ('account_link', 'login_queue', 'local_session', 'character', 'entitlements', 'city_join')}
 
     def observe(self, body):
         label = heartbeat_map(body)
@@ -56,7 +56,10 @@ def make_application(database, observations):
                     observations.observe(body)
             response = super().handle(method, host, path, headers, body, secure=secure)
             # Record fixed route labels only. Never retain raw paths, headers or tokens.
-            stages = {'epiceos-session-research': 'local_session',
+            stages = {'account-link': 'account_link',
+                      'candidate-account-link-epiceos': 'account_link',
+                      'login-queue': 'login_queue',
+                      'epiceos-session-research': 'local_session',
                       'character': 'character', 'entitlementsv2': 'entitlements',
                       'ramsgate-join': 'city_join'}
             if secure:
