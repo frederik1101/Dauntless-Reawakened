@@ -7,7 +7,7 @@ import os
 import time
 from pathlib import Path
 
-REVISION = 'ramsgate-map-preview-20261011.1'
+REVISION = 'post-login-20261011.2'
 EXACT_SHA256 = '934325acecf64e19a01f70f72dcdcebd68cfb12f11a812cd551c608ac16cea34'
 MAP = '/Game/Maps/ramsgate/ramsgate_01_persistent'
 # The map and city mode are documented in Revived's awakening-2-1-1.md.
@@ -77,10 +77,21 @@ def process_memory_bytes(process) -> int:
     return max(int(info.PrivateUsage), int(info.WorkingSetSize))
 
 
+def login_test_duration(seconds: int | None, normal_login: bool) -> int:
+    maximum = 600 if normal_login else 180
+    value = seconds if seconds is not None else (600 if normal_login else 120)
+    if type(value) is not int or not 30 <= value <= maximum:
+        raise ValueError('Test duration outside supported mode bounds')
+    return value
+
+
 def watch(process, seconds: int, *, measure=process_memory_bytes,
-          clock=time.monotonic, sleep=time.sleep, cap_mib: int = 5000) -> dict:
-    if type(seconds) is not int or not 30 <= seconds <= 180:
-        raise ValueError('Map preview duration must be 30 to 180 seconds')
+          clock=time.monotonic, sleep=time.sleep, cap_mib: int = 5000,
+          max_seconds: int = 180) -> dict:
+    if type(max_seconds) is not int or max_seconds not in (180, 600):
+        raise ValueError('Invalid watchdog duration bound')
+    if type(seconds) is not int or not 30 <= seconds <= max_seconds:
+        raise ValueError('Test duration outside watchdog bounds')
     if type(cap_mib) is not int or not 1 <= cap_mib <= 5000:
         raise ValueError('Invalid memory cap')
     start, peak = clock(), 0

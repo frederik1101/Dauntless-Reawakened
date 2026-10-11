@@ -24,12 +24,15 @@ from tools.login_probe import inspect_client, windows_ready, no_running_game, fl
 from tools.local_tls import generate
 from tools.probe_files import prepare, restore, _plain_path
 from backend.server import make_server, tls_context
-from tools.map_preview_support import REVISION, EXACT_SHA256, install_config, watch, stop_owned
+from tools.map_preview_support import (
+    REVISION, EXACT_SHA256, install_config, watch, stop_owned, login_test_duration,
+)
 
 NOTICE = ('RAMSGATE MAP PREVIEW ONLY. No server, verified login or controllable player.\n'
           'The normal login map is replaced temporarily; this does NOT test normal city travel.\n'
           'An empty view, return to login, loading error or client crash remains possible.\n'
-          'Time limit: at most 180 seconds. Memory watchdog: 5000 MiB (sampled, not a hard OS limit).')
+          'Map-preview limit: 180 seconds. Normal-login limit: 600 seconds.\n'
+          'Memory watchdog: 5000 MiB (sampled, not a hard OS limit).')
 
 
 def check(root: Path) -> dict:
@@ -58,8 +61,7 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
                 external_server: bool = False) -> None:
     if external_server and not normal_login:
         raise ValueError('External server mode requires normal login')
-    if type(seconds) is not int or not 30 <= seconds <= 180:
-        raise ValueError('Map preview duration must be 30 to 180 seconds')
+    seconds = login_test_duration(seconds, normal_login)
     info = check(root)
     exe = Path(info['exe'])
     windows_ready(exe)
@@ -75,8 +77,11 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
     print('NORMAL LOGIN + CITY REQUEST TEST; no game host or playable character.' if normal_login else NOTICE)
     print('Temporary changes: Phoenix hosts entries, this game CA, and WindowsClient config.')
     print('Original game EXE, Epic domains, Windows trust and previous research database are unchanged.')
-    if normal_login:
+    if external_server:
+        print('Character data belongs to the running standalone server; no competing backend is started.')
+    elif normal_login:
         print('This mode stores local character data in a separate persistent normal-login.sqlite3 database.')
+    print('Duration:', seconds, 'seconds including Epic login; memory watchdog remains 5000 MiB.')
     print('The local backend retains its existing authentication and unknown-route errors.')
     if input('Type MAP to consent, or Enter to cancel: ').strip() != 'MAP':
         print('Cancelled. Nothing changed.')
@@ -98,7 +103,8 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
     try:
         tls = (Path(os.environ['LOCALAPPDATA']) / 'DauntlessReawakenedServer/tls'
                if external_server else generate(home / ('tls-' + str(time.time_ns()))))
-        ctx = tls_context(tls / 'server.pem', tls / 'server-key.pem')
+        # External mode needs only the PUBLIC CA, not the server's private key.
+        ctx = None if external_server else tls_context(tls / 'server.pem', tls / 'server-key.pem')
         # In external mode the standalone server already owns 80/443.
         # No second backend may intercept the game's requests.
         if not external_server:
@@ -115,8 +121,11 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
         try:
             client.request('GET', '/health')
             reply = client.getresponse()
-            if reply.status != 200 or not json.loads(reply.read()).get('experimental_login_port'):
+            health = json.loads(reply.read())
+            if reply.status != 200 or not health.get('experimental_login_port'):
                 raise ValueError('Local backend self-check failed')
+            if external_server and health.get('post_login_revision') != REVISION:
+                raise ValueError('Update and restart the standalone server to match this client test')
         finally:
             client.close()
         config = Path(os.environ['LOCALAPPDATA']) / 'Archon/Saved/Config/WindowsClient'
@@ -145,7 +154,9 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
         process = subprocess.Popen([str(exe), '-EpicPortal', '-AUTH_TYPE=accountportal',
                     '-AUTH_LOGIN=unused', '-AUTH_PASSWORD=unused'], cwd=exe.parent,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        outcome = watch(process, seconds)
+        outcome = (watch(process, seconds, max_seconds=600) if normal_login else watch(process, seconds))
+        if outcome.get('termination') == 'time_limit':
+            print('TEST TIME LIMIT reached; this tool is stopping its client, not reporting a game crash.')
     except KeyboardInterrupt:
         outcome = {'termination': 'interrupted'}
     finally:
@@ -233,7 +244,8 @@ def main():
     for name in ('about', 'check', 'run', 'restore', 'self-test', 'offline-identity-test'):
         modes.add_argument('--' + name, action='store_true')
     parser.add_argument('--game-root', type=Path, default=Path(r'C:\Program Files\Epic Games\Dauntless'))
-    parser.add_argument('--seconds', type=int, default=120)
+    parser.add_argument('--seconds', type=int, default=None,
+                        help='Default 600 for normal login; 120 for direct map preview')
     parser.add_argument('--external-server', action='store_true',
                         help='Use running standalone API on loopback 80/443; requires --normal-login')
     parser.add_argument('--normal-login', action='store_true',
@@ -281,7 +293,7 @@ def main():
                 flush_dns()
                 print('Map preview changes restored.')
             else:
-                run_preview(args.game_root.absolute(), home, args.seconds,
+                run_preview(args.game_root.absolute(), home, login_test_duration(args.seconds, args.normal_login),
                             normal_login=args.normal_login,
                             external_server=args.external_server)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:

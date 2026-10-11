@@ -1,12 +1,16 @@
-name: Build standalone local API server
+name: Build post-login server and client test
 on:
   push:
     branches: [work/ramsgate-map-preview]
     paths:
-      - 'tools/standalone_server.py'
-      - 'tests/test_standalone_server.py'
+      - 'backend/**'
+      - 'tools/**'
+      - 'tests/**'
+      - 'requirements-dev.txt'
       - '.github/workflows/build-standalone-server.yml'
+      - 'docs/POST_LOGIN_FIXES.md'
       - 'docs/STANDALONE_LOCAL_SERVER.md'
+      - 'NOTICE.md'
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,26 +25,39 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt 'pyinstaller>=6,<7'
-      - name: Run tests
+      - name: Run full suite with actual loopback TLS and temporary SQLite
         run: python -m unittest discover -s tests -v
       - name: Build standalone API server
         run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Local-Server --paths . tools/standalone_server.py
-      - name: Test packaged executable without game
+      - name: Build matching reversible client launcher
+        run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Ramsgate-Preview --paths . tools/ramsgate_map_preview.py
+      - name: Test both packaged executables without game files
         shell: pwsh
         run: |
-          & .\dist\Reawakened-Local-Server.exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged self-test failed' }
+          $old = $env:LOCALAPPDATA
+          $profile = Join-Path $env:RUNNER_TEMP ('post-login-smoke-' + [guid]::NewGuid().ToString('N'))
+          try {
+            $env:LOCALAPPDATA = $profile
+            & .\dist\Reawakened-Local-Server.exe --self-test
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged server self-test failed' }
+            & .\dist\Reawakened-Ramsgate-Preview.exe --self-test
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged client helper self-test failed' }
+            & .\dist\Reawakened-Ramsgate-Preview.exe --help
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged client CLI failed' }
+            if (Test-Path $profile) { throw 'Self-tests created user profile files' }
+          } finally { $env:LOCALAPPDATA = $old }
       - name: Include source, instructions and license
         shell: pwsh
         run: |
           Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md dist
-          Copy-Item docs/STANDALONE_LOCAL_SERVER.md dist
+          Copy-Item docs/POST_LOGIN_FIXES.md dist/START-HERE.md
           git archive --format=zip --output=dist/Corresponding-Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
+          git rev-parse HEAD | Set-Content -Encoding ascii dist/BUILD-COMMIT.txt
           Get-FileHash -Algorithm SHA256 dist/*.exe | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Reawakened-Standalone-Local-API-Windows
+          name: Reawakened-Post-Login-Test-Windows
           path: dist/
           if-no-files-found: error
           retention-days: 14

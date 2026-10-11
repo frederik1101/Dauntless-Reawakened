@@ -48,6 +48,11 @@ class Database:
                 quantity INTEGER NOT NULL CHECK(quantity > 0),
                 version INTEGER NOT NULL CHECK(version >= 0),
                 PRIMARY KEY(character_id, instance_id));
+            CREATE TABLE IF NOT EXISTS local_store_balances (
+                account_id TEXT NOT NULL REFERENCES accounts(id),
+                currency TEXT NOT NULL,
+                amount INTEGER NOT NULL CHECK(amount >= 0 AND amount < 2147483648),
+                PRIMARY KEY(account_id, currency));
         ''')
         self._db.commit()
 
@@ -99,6 +104,20 @@ class Database:
         with self._lock:
             return self._db.execute('SELECT 1 FROM characters WHERE id=? AND account_id=?',
                                     (character_id, account_id)).fetchone() is not None
+
+    def local_balances(self, account_id: str) -> dict:
+        """Read-only snapshot of local store balances; never imports purchases.
+
+        An account starts with no balances. No HTTP currency-grant or purchase
+        writer is exposed. This table is separate from gameplay inventory.
+        """
+        with self._lock:
+            rows = self._db.execute(
+                'SELECT currency,amount FROM local_store_balances WHERE account_id=? LIMIT 129',
+                (account_id,)).fetchall()
+        if len(rows) > 128:
+            raise ValueError('Too many local currencies')
+        return {row['currency']: row['amount'] for row in rows}
 
     def bootstrap_inventory(self, account_id: str, character_id: str) -> dict:
         """Persist only the two documented research starter items, once per character.

@@ -11,12 +11,15 @@ import json
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 from backend.database import Database
-from backend.ramsgate_application import RamsgateApplication
+from backend.post_login import PostLoginApplication
+from backend.post_login_contracts import REVISION
 from backend.server import make_server, tls_context
 from tools.local_tls import generate
+from tools.post_login_backup import backup_before_post_login
 
 
 def default_home() -> Path:
@@ -39,14 +42,17 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         if not (tls / filename).is_file():
             raise ValueError('Incomplete TLS directory; preserve it for review')
     context = tls_context(tls / 'server.pem', tls / 'server-key.pem')
+    backup = backup_before_post_login(home / 'players.sqlite3')
+    if backup is not None:
+        print('Pre-upgrade SQLite backup retained:', backup, flush=True)
     database = Database(home / 'players.sqlite3')
     servers = []
     workers = []
     try:
         # Client research mode matches the old preview's local-only EOS-sub lookup.
         # It does NOT validate Epic tokens or prove account ownership.
-        app = RamsgateApplication(database, allow_unverified_eos_sub=client_ports,
-                                  maintenance_response={'isMaintenance': False})
+        app = PostLoginApplication(database, allow_unverified_eos_sub=client_ports,
+                                   maintenance_response={'isMaintenance': False})
         # Bind every requested listener before starting any worker.
         endpoints = [('127.0.0.1', port, context)] if not client_ports else [
             (ip, listen_port, security) for listen_port, security in ((443, context), (80, None))
@@ -81,13 +87,23 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
 def self_test() -> dict:
     database = Database(':memory:')
     try:
-        app = RamsgateApplication(database)
+        app = PostLoginApplication(database)
         health = app.handle('GET', 'localhost', '/health', {})
         denied = app.handle('GET', 'dauntless-prod.steelyard.ca',
                             '/character', {}, secure=True)
-        if health.status != 200 or denied.status != 401:
+        if (health.status != 200 or denied.status != 401 or
+                health.payload.get('post_login_revision') != REVISION):
             raise ValueError('Backend self-test failed')
+        account = database.account('packaged-self-test')['accountId']
+        session = app.sessions.create(account, linked_epic_id='synthetic-epic-id')
+        mapped = app.handle('POST', 'auth-prod.steelyard.ca', '/account/mapping',
+            {'Authorization': 'Bearer ' + session.session_token},
+            b'{"srcAccountType":"epic","ids":["synthetic-epic-id"]}', secure=True)
+        if (mapped.status != 200 or
+                mapped.payload['accountMappings']['synthetic-epic-id']['accountId'] != account):
+            raise ValueError('Packaged account mapping failed')
         return {'api': 'passed', 'unauthenticated_character': 'denied',
+                'post_login_revision': REVISION, 'local_mapping': 'passed',
                 'gameplay_host': 'not_implemented', 'epic_auth': 'not_implemented'}
     finally:
         database.close()
@@ -101,11 +117,14 @@ def main() -> int:
     parser.add_argument('--client-ports', action='store_true',
                         help='Bind loopback HTTP 80 and HTTPS 443 for a separate reversible client test')
     args = parser.parse_args()
+    print('Server revision:', REVISION)
     try:
         if args.self_test:
             print(json.dumps(self_test(), indent=2))
         else:
-            logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
+            logging.Formatter.converter = time.gmtime
+            logging.basicConfig(level=logging.INFO, format='%(asctime)sZ %(levelname)s %(message)s',
+                                datefmt='%Y-%m-%dT%H:%M:%S')
             serve(args.home or default_home(), args.port, client_ports=args.client_ports)
     except (OSError, ValueError) as exc:
         parser.exit(1, 'Server stopped: %s\n' % exc)
