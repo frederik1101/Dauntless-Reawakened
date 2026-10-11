@@ -54,7 +54,7 @@ def pending(home: Path) -> bool:
     return json.loads(journal.read_text(encoding='utf-8')).get('restored') is not True
 
 
-def run_preview(root: Path, home: Path, seconds: int) -> None:
+def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = False) -> None:
     if type(seconds) is not int or not 30 <= seconds <= 180:
         raise ValueError('Map preview duration must be 30 to 180 seconds')
     info = check(root)
@@ -69,7 +69,7 @@ def run_preview(root: Path, home: Path, seconds: int) -> None:
     active = home / 'active'
     if active.exists() and not (active / 'journal.json').is_file():
         raise ValueError('Unrecognised map preview state; retained for review')
-    print(NOTICE)
+    print('NORMAL LOGIN + CITY REQUEST TEST; no game host or playable character.' if normal_login else NOTICE)
     print('Temporary changes: Phoenix hosts entries, this game CA, and WindowsClient config.')
     print('Original game EXE, Epic domains, Windows trust and existing character database are unchanged.')
     print('The local backend retains its existing authentication and unknown-route errors.')
@@ -113,7 +113,7 @@ def run_preview(root: Path, home: Path, seconds: int) -> None:
         ca = root / 'Engine/Content/Certificates/cacert.pem'
         names = sorted(s + '.steelyard.ca' for s in SERVICES) + ['steelyard.online']
         journal = prepare(active, ca, hosts, config, (tls / 'ca.pem').read_bytes(), names)
-        install_config(config, journal)
+        install_config(config, journal, normal_login=normal_login)
         flush_dns()
         for name in ('auth-prod.steelyard.ca', 'tracking-prod.steelyard.ca'):
             addresses = {r[4][0] for r in socket.getaddrinfo(name, 443, type=socket.SOCK_STREAM)}
@@ -125,8 +125,10 @@ def run_preview(root: Path, home: Path, seconds: int) -> None:
         handler.setFormatter(formatter)
         logger.setLevel(logging.INFO)
         logger.addHandler(handler)
-        logger.info('MAP_PREVIEW_BEGIN revision=%s game_server=false', REVISION)
-        print('Starting original client with temporary Ramsgate default map. Keep this window open.')
+        logger.info('MAP_PREVIEW_BEGIN revision=%s game_server=false mode=%s', REVISION,
+                    'normal_login' if normal_login else 'map_preview')
+        print('Starting original client with normal login map.' if normal_login else
+              'Starting original client with temporary Ramsgate default map. Keep this window open.')
         process = subprocess.Popen([str(exe), '-EpicPortal', '-AUTH_TYPE=accountportal',
                     '-AUTH_LOGIN=unused', '-AUTH_PASSWORD=unused'], cwd=exe.parent,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -155,7 +157,8 @@ def run_preview(root: Path, home: Path, seconds: int) -> None:
                 logger.removeHandler(handler)
                 handler.close()
             if journal is not None:
-                report = {'revision': REVISION, 'test_kind': 'stock_client_map_preview',
+                report = {'revision': REVISION, 'test_kind':
+                          'normal_login_city_observation' if normal_login else 'stock_client_map_preview',
                           **outcome, **observations.report(), 'restored': restored,
                           'exit_code': process.poll() if process is not None else None}
                 with (active / 'map-preview-result.json').open('x', encoding='utf-8') as stream:
@@ -171,8 +174,12 @@ def main():
         modes.add_argument('--' + name, action='store_true')
     parser.add_argument('--game-root', type=Path, default=Path(r'C:\Program Files\Epic Games\Dauntless'))
     parser.add_argument('--seconds', type=int, default=120)
+    parser.add_argument('--normal-login', action='store_true',
+                        help='Keep original login map; observe authenticated CITY requests without a host')
     args = parser.parse_args()
     print('Preview revision:', REVISION)
+    if args.normal_login and not args.run:
+        parser.error('--normal-login requires --run')
     try:
         if args.about:
             print(NOTICE + '\n' + ABOUT)
@@ -208,7 +215,8 @@ def main():
                 flush_dns()
                 print('Map preview changes restored.')
             else:
-                run_preview(args.game_root.absolute(), home, args.seconds)
+                run_preview(args.game_root.absolute(), home, args.seconds,
+                            normal_login=args.normal_login)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         print('STOP:', exc, file=sys.stderr)
         print('Keep all backups. If this preview changed files, use this EXE --restore with the game closed.', file=sys.stderr)
