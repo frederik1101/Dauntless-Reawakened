@@ -46,9 +46,11 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         app = RamsgateApplication(database, allow_unverified_eos_sub=False,
                                   maintenance_response={'isMaintenance': False})
         # Bind every requested listener before starting any worker.
-        endpoints = [(port, context)] if not client_ports else [(443, context), (80, None)]
-        for listen_port, tls_context_or_none in endpoints:
-            servers.append(make_server(app, '127.0.0.1', listen_port, tls_context_or_none))
+        endpoints = [('127.0.0.1', port, context)] if not client_ports else [
+            (ip, listen_port, security) for listen_port, security in ((443, context), (80, None))
+            for ip in ('127.0.0.1', '::1')]
+        for ip, listen_port, tls_context_or_none in endpoints:
+            servers.append(make_server(app, ip, listen_port, tls_context_or_none))
         for server in servers:
             worker = threading.Thread(target=server.serve_forever,
                                       kwargs={'poll_interval': 0.1}, daemon=True)
