@@ -1,0 +1,45 @@
+name: Build standalone local API server
+on:
+  push:
+    branches: [work/ramsgate-map-preview]
+    paths:
+      - 'tools/standalone_server.py'
+      - 'tests/test_standalone_server.py'
+      - '.github/workflows/build-standalone-server.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt 'pyinstaller>=6,<7'
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Build standalone API server
+        run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Local-Server --paths . tools/standalone_server.py
+      - name: Test packaged executable without game
+        shell: pwsh
+        run: |
+          & .\dist\Reawakened-Local-Server.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged self-test failed' }
+      - name: Include source, instructions and license
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md dist
+          Copy-Item docs/STANDALONE_LOCAL_SERVER.md dist
+          git archive --format=zip --output=dist/Corresponding-Source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
+          Get-FileHash -Algorithm SHA256 dist/*.exe | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Reawakened-Standalone-Local-API-Windows
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
