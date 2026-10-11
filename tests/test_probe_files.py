@@ -99,10 +99,12 @@ class ProbeFilesTests(unittest.TestCase):
         restore(journal)
         self.assertEqual(self.hosts.read_bytes(), original)
 
-    def test_missing_original_ca_fails_closed(self):
+    def test_missing_original_ca_is_supported(self):
         self.ca.unlink()
-        with self.assertRaises(ValueError):
-            self.apply()
+        journal = self.apply()
+        self.assertTrue(self.ca.is_file())
+        restore(journal)
+        self.assertFalse(self.ca.exists())
         self.assertFalse(self.state.exists())
 
     def test_existing_state_is_not_overwritten(self):
