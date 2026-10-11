@@ -14,7 +14,7 @@ import copy
 import json
 import re
 
-REVISION = 'post-login-20261011.2'
+REVISION = 'login-continuity-20261011.4'
 MAX_BODY = 65536
 TUNING = {
     'seasonal_event_schedule': {'ScheduledItems': []},
@@ -136,8 +136,10 @@ def reconcile_response(balances: dict) -> dict:
 def tuning_response(blob: str) -> dict:
     if blob not in TUNING:
         raise KeyError('Unimplemented tuning blob')
-    # Retain the upstream envelope. Acceptance in 2.1.1 still needs a client test.
-    return {'code': None, 'message': 'OK', 'payload': copy.deepcopy(TUNING[blob])}
+    # 2.1.1's wrapped response uses a string reader for code. Keep payload
+    # as an OBJECT: the game serializes it to its internal string itself.
+    # This is a type correction, not proof that it caused the login reset.
+    return {'code': 'OK', 'message': 'OK', 'payload': copy.deepcopy(TUNING[blob])}
 
 
 def creator_response() -> dict:

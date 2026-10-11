@@ -63,3 +63,21 @@ uses a read-only local SQLite balance snapshot, and reports no creator affiliati
 The tuning defaults and negative creator state are experiments, not recovered
 final 2.1.1 gameplay data or proof of client acceptance. Sources, modifications,
 validation boundaries and complete running instructions: docs/POST_LOGIN_FIXES.md.
+
+## Local source update — login reset trace, 11 October 2026
+
+The three existing game-tuning response ports now use a string `code` for the
+2.1.1 reader while keeping their object payloads and research defaults unchanged.
+This is not a recovered official 2.1.1 data set or a proven login repair.
+New protocol metadata and owned-child stdout filtering are original Reawakened
+helpers; they do not import a native runtime, perform injection or bypass Epic.
+See docs/LOGIN_CONTINUITY.md for the two-log review, evidence and validation limits.
+
+## Reawakened local continuity change — 11 October 2026
+
+login-continuity-20261011.4 includes the previously source-only type/trace
+corrections, an independent wsproto-based presence transport experiment, and
+byte-identical local character-save retry handling. No original game files or
+Mystic native runtime are included. Presence source evidence is the public
+2.1.1 static contract; its relevance to the real-client reset is unverified.
+See docs/LOGIN_CONTINUITY.md and THIRD_PARTY_NOTICES.md.

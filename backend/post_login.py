@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .application import Response, bearer, target
 from .protocol_211 import game_session_response
+from .database import VersionConflict
 from .ramsgate_application import RamsgateApplication
 from .post_login_contracts import (
     REVISION, TUNING_LABELS, UnsupportedRequest, mapping_response,
@@ -36,6 +37,7 @@ class PostLoginApplication(RamsgateApplication):
                 'post_login_compatibility': True, 'post_login_client_verified': False,
                 'game_compatible': False}, old.route)
         routes = {
+            ('POST', 'dauntless-prod', '/character'): 'character',
             ('POST', 'auth-prod', '/account/mapping'): 'post-login-account-mapping',
             ('POST', 'auth-prod', '/accountinfo/public'): 'post-login-public-account',
             ('POST', 'store-prod', '/reconcile'): 'post-login-store-reconcile',
@@ -55,7 +57,11 @@ class PostLoginApplication(RamsgateApplication):
             session = self.sessions.resolve(bearer(lower))
             if session is None:
                 raise PermissionError()
-            if blob is not None:
+            if label == 'character':
+                data = self._json(body)
+                payload = self.database.save(session.account_id, data['characterId'],
+                    data['data'], data['updateVersion'], allow_identical_retry=True)
+            elif blob is not None:
                 if label == 'post-login-tuning-unimplemented':
                     return Response(404, route=label)
                 payload = tuning_response(blob)
@@ -74,6 +80,10 @@ class PostLoginApplication(RamsgateApplication):
             return Response(200, payload, label)
         except PermissionError:
             return Response(401, route=label)
+        except VersionConflict:
+            return Response(409, route=label)
+        except KeyError:
+            return Response(400, route=label)
         except UnsupportedRequest:
             return Response(422, route=label)
         except (ValueError, TypeError, RecursionError):

@@ -1,13 +1,14 @@
-name: Build post-login server and client test
+name: Build login continuity server and client test
 on:
   push:
-    branches: [work/ramsgate-map-preview]
+    branches: [work/ramsgate-map-preview, work/login-continuity-211]
     paths:
       - 'backend/**'
       - 'tools/**'
       - 'tests/**'
       - 'requirements-dev.txt'
       - '.github/workflows/build-standalone-server.yml'
+      - 'docs/LOGIN_CONTINUITY.md'
       - 'docs/POST_LOGIN_FIXES.md'
       - 'docs/STANDALONE_LOCAL_SERVER.md'
       - 'NOTICE.md'
@@ -49,15 +50,15 @@ jobs:
       - name: Include source, instructions and license
         shell: pwsh
         run: |
-          Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md dist
-          Copy-Item docs/POST_LOGIN_FIXES.md dist/START-HERE.md
+          Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md,THIRD_PARTY_NOTICES.md dist
+          Copy-Item docs/LOGIN_CONTINUITY.md dist/START-HERE.md
           git archive --format=zip --output=dist/Corresponding-Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
           git rev-parse HEAD | Set-Content -Encoding ascii dist/BUILD-COMMIT.txt
           Get-FileHash -Algorithm SHA256 dist/*.exe | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Reawakened-Post-Login-Test-Windows
+          name: Reawakened-Login-Continuity-Windows
           path: dist/
           if-no-files-found: error
           retention-days: 14

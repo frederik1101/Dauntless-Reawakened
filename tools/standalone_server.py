@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import threading
 import time
@@ -30,7 +31,10 @@ def default_home() -> Path:
 
 
 def serve(home: Path, port: int, *, stop: threading.Event | None = None,
-          client_ports: bool = False, diagnostic: bool = False) -> None:
+          client_ports: bool = False, diagnostic: bool = False,
+          presence: bool = False) -> None:
+    if presence and not client_ports:
+        raise ValueError('Presence requires explicit --client-ports mode')
     if type(port) is not int or not 1024 <= port <= 65535:
         raise ValueError('Choose an unprivileged port (1024-65535)')
     home = home.absolute()
@@ -48,18 +52,37 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
     database = Database(home / 'players.sqlite3')
     servers = []
     workers = []
+    presence_hub = None
+    diagnostic_handler = None
     try:
+        if diagnostic:
+            from tools.probe_files import _plain_path
+            log_dir = home / 'logs'
+            _plain_path(log_dir)
+            log_dir.mkdir(exist_ok=True)
+            log_path = log_dir / ('server-diagnostic-' + str(time.time_ns()) + '.log')
+            diagnostic_handler = RotatingFileHandler(log_path, maxBytes=2*1024*1024,
+                                                       backupCount=1, encoding='utf-8')
+            formatter = logging.Formatter('%(asctime)sZ %(levelname)s %(message)s',
+                                          '%Y-%m-%dT%H:%M:%S')
+            formatter.converter = time.gmtime
+            diagnostic_handler.setFormatter(formatter)
+            logging.getLogger('reawakened.requests').addHandler(diagnostic_handler)
+            print('Sanitized server log:', log_path, flush=True)
         # Client research mode matches the old preview's local-only EOS-sub lookup.
         # It does NOT validate Epic tokens or prove account ownership.
         app = PostLoginApplication(database, allow_unverified_eos_sub=client_ports,
                                    maintenance_response={'isMaintenance': False})
+        if presence:
+            from backend.presence import PresenceHub
+            presence_hub = PresenceHub(app.sessions)
         # Bind every requested listener before starting any worker.
         endpoints = [('127.0.0.1', port, context)] if not client_ports else [
             (ip, listen_port, security) for listen_port, security in ((443, context), (80, None))
             for ip in ('127.0.0.1', '::1')]
         for ip, listen_port, tls_context_or_none in endpoints:
             servers.append(make_server(app, ip, listen_port, tls_context_or_none,
-                                       diagnostic=diagnostic))
+                                       diagnostic=diagnostic, presence=presence_hub))
         for server in servers:
             worker = threading.Thread(target=server.serve_forever,
                                       kwargs={'poll_interval': 0.1}, daemon=True)
@@ -68,6 +91,8 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         print('Reawakened standalone API: https://127.0.0.1:%d/health' % (443 if client_ports else port), flush=True)
         print('Database: ' + str(home / 'players.sqlite3'), flush=True)
         print('LOCAL API ONLY. No Epic login, native gameplay host, Ramsgate join or playable character.', flush=True)
+        if presence:
+            print('PRESENCE TRANSPORT enabled; no game updates or native host.', flush=True)
         if client_ports:
             print('CLIENT PORTS READY on loopback 80/443. No game redirect performed.', flush=True)
             print('WARNING: EOS-sub is an UNVERIFIED local lookup key, not Epic authentication.', flush=True)
@@ -76,12 +101,17 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         except KeyboardInterrupt:
             pass
     finally:
+        if presence_hub is not None:
+            presence_hub.close()
         for server in servers[:len(workers)]:
             server.shutdown()
         for server in servers:
             server.server_close()
         for worker in workers:
             worker.join(timeout=5)
+        if diagnostic_handler is not None:
+            logging.getLogger('reawakened.requests').removeHandler(diagnostic_handler)
+            diagnostic_handler.close()
         database.close()
 
 
@@ -103,8 +133,26 @@ def self_test() -> dict:
         if (mapped.status != 200 or
                 mapped.payload['accountMappings']['synthetic-epic-id']['accountId'] != account):
             raise ValueError('Packaged account mapping failed')
+        from backend.post_login_contracts import tuning_response
+        if tuning_response('huntpass_xp_config')['code'] != 'OK':
+            raise ValueError('Packaged tuning envelope type check failed')
+        from wsproto import WSConnection, ConnectionType
+        from wsproto.events import AcceptConnection, Request
+        codec = WSConnection(ConnectionType.SERVER)
+        codec.receive_data(b'GET /test HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n'
+            b'Connection: Upgrade\r\nSec-WebSocket-Version: 13\r\n'
+            b'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: json\r\n\r\n')
+        if not any(isinstance(event, Request) for event in codec.events()):
+            raise ValueError('Packaged presence parser failed')
+        if b'101 Switching Protocols' not in codec.send(AcceptConnection(subprotocol='json')):
+            raise ValueError('Packaged presence handshake failed')
+        character = database.create(account, 'Synthetic', '{}')
+        database.save(account, character['id'], '{}', 1, allow_identical_retry=True)
+        if database.save(account, character['id'], '{}', 1, allow_identical_retry=True) != {'data': '{}'}:
+            raise ValueError('Packaged character retry failed')
         return {'api': 'passed', 'unauthenticated_character': 'denied',
                 'post_login_revision': REVISION, 'local_mapping': 'passed',
+                'presence_codec': 'passed', 'character_retry': 'passed',
                 'gameplay_host': 'not_implemented', 'epic_auth': 'not_implemented'}
     finally:
         database.close()
@@ -115,6 +163,8 @@ def main() -> int:
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--home', type=Path)
     parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('--presence', action='store_true',
+                        help='Optional local presence WebSocket; not game-host emulation')
     parser.add_argument('--diagnostic', action='store_true',
                         help='Extra value-free JSON shape, timing and session diagnostics')
     parser.add_argument('--client-ports', action='store_true',
@@ -129,7 +179,7 @@ def main() -> int:
             logging.basicConfig(level=logging.INFO, format='%(asctime)sZ %(levelname)s %(message)s',
                                 datefmt='%Y-%m-%dT%H:%M:%S')
             serve(args.home or default_home(), args.port, client_ports=args.client_ports,
-                  diagnostic=args.diagnostic)
+                  diagnostic=args.diagnostic, presence=args.presence)
     except (OSError, ValueError) as exc:
         parser.exit(1, 'Server stopped: %s\n' % exc)
     return 0

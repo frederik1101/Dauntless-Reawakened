@@ -64,6 +64,16 @@ class SessionStore:
                 return None
             return session
 
+    def active_for_account(self, account_id: str) -> Session | None:
+        """Presence-only admission; never use this lookup as API authentication."""
+        if not isinstance(account_id, str) or not account_id:
+            return None
+        with self._lock:
+            now = self.clock()
+            candidates = [v for v in self._entries.values()
+                          if v.account_id == account_id and v.expires_at > now]
+            return max(candidates, key=lambda v: v.expires_at) if candidates else None
+
     def revoke(self, token: str) -> bool:
         with self._lock:
             return self._entries.pop(self._key(token), None) is not None

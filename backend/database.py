@@ -85,16 +85,21 @@ class Database:
                              (record['id'], account_id, name, 0, seed))
         return record
 
-    def save(self, account_id: str, character_id: object, data: object, version: object) -> dict:
+    def save(self, account_id: str, character_id: object, data: object, version: object,
+             *, allow_identical_retry: bool = False) -> dict:
         if not isinstance(character_id, str) or type(version) is not int or not 0 <= version < 2**31:
             raise ValueError('Invalid character update')
         data = character_data(data)
         with self._lock, self._db:
-            row = self._db.execute('SELECT version FROM characters WHERE id=? AND account_id=?',
+            row = self._db.execute('SELECT version,data FROM characters WHERE id=? AND account_id=?',
                                    (character_id, account_id)).fetchone()
             if row is None:
                 raise KeyError('Character not found')
             if version <= row['version']:
+                # A byte-identical retry can occur after a lost HTTP reply.
+                # It is read-only; different data or an older version stays a conflict.
+                if allow_identical_retry and version == row['version'] and data == row['data']:
+                    return {'data': row['data']}
                 raise VersionConflict('Stale character version')
             self._db.execute('UPDATE characters SET version=?,data=? WHERE id=? AND account_id=?',
                              (version, data, character_id, account_id))

@@ -27,6 +27,7 @@ from backend.server import make_server, tls_context
 from tools.map_preview_support import (
     REVISION, EXACT_SHA256, install_config, watch, stop_owned, login_test_duration,
 )
+from tools.client_trace import ClientTrace, TRACE_FLAGS
 
 NOTICE = ('RAMSGATE MAP PREVIEW ONLY. No server, verified login or controllable player.\n'
           'The normal login map is replaced temporarily; this does NOT test normal city travel.\n'
@@ -58,7 +59,9 @@ def pending(home: Path) -> bool:
 
 
 def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = False,
-                external_server: bool = False) -> None:
+                external_server: bool = False, trace_client: bool = False) -> None:
+    if trace_client and not normal_login:
+        raise ValueError('Client tracing requires normal login')
     if external_server and not normal_login:
         raise ValueError('External server mode requires normal login')
     seconds = login_test_duration(seconds, normal_login)
@@ -83,6 +86,8 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
         print('This mode stores local character data in a separate persistent normal-login.sqlite3 database.')
     print('Duration:', seconds, 'seconds including Epic login; memory watchdog remains 5000 MiB.')
     print('The local backend retains its existing authentication and unknown-route errors.')
+    if trace_client:
+        print('CLIENT TRACE: requests stock stdout logging; only fixed error labels are retained, no raw lines.')
     if input('Type MAP to consent, or Enter to cancel: ').strip() != 'MAP':
         print('Cancelled. Nothing changed.')
         return
@@ -97,6 +102,8 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
     app = make_application(db, observations)
     servers, workers = [], []
     process = journal = handler = None
+    client_trace = ClientTrace() if trace_client else None
+    trace_report = None
     restored = False
     outcome = {'termination': 'setup_failed'}
     logger = logging.getLogger('reawakened.requests')
@@ -151,9 +158,15 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
         print('Starting original client against standalone local API.' if external_server else
               'Starting original client with normal login map.' if normal_login else
               'Starting original client with temporary Ramsgate default map. Keep this window open.')
-        process = subprocess.Popen([str(exe), '-EpicPortal', '-AUTH_TYPE=accountportal',
-                    '-AUTH_LOGIN=unused', '-AUTH_PASSWORD=unused'], cwd=exe.parent,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        args = [str(exe), '-EpicPortal', '-AUTH_TYPE=accountportal',
+                '-AUTH_LOGIN=unused', '-AUTH_PASSWORD=unused']
+        if trace_client:
+            args.extend(TRACE_FLAGS)
+        process = subprocess.Popen(args, cwd=exe.parent,
+                    stdout=subprocess.PIPE if trace_client else subprocess.DEVNULL,
+                    stderr=subprocess.STDOUT if trace_client else subprocess.DEVNULL)
+        if client_trace is not None:
+            client_trace.start(process.stdout)
         outcome = (watch(process, seconds, max_seconds=600) if normal_login else watch(process, seconds))
         if outcome.get('termination') == 'time_limit':
             print('TEST TIME LIMIT reached; this tool is stopping its client, not reporting a game crash.')
@@ -176,6 +189,8 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
             for worker in workers:
                 worker.join(timeout=6)
             db.close()
+            if client_trace is not None:
+                trace_report = client_trace.finish()
             if handler:
                 logger.info('MAP_PREVIEW_END restored=%s', restored)
                 logger.removeHandler(handler)
@@ -187,8 +202,15 @@ def run_preview(root: Path, home: Path, seconds: int, *, normal_login: bool = Fa
                           **outcome, **observations.report(),
                           'backend_observations_collected_here': not external_server,
                           'external_server_logs_required': external_server,
+                          'client_trace': trace_report,
                           'restored': restored,
                           'exit_code': process.poll() if process is not None else None}
+                if external_server:
+                    # No local collection occurred; zero counters look like a failed login.
+                    for key in ('map_report_counts', 'ramsgate_self_report_seen',
+                                'backend_stage_counts', 'unauthorized_stage_labels'):
+                        report[key] = None
+                    report['backend_observation'] = 'not_collected_external_server'
                 with (active / 'map-preview-result.json').open('x', encoding='utf-8') as stream:
                     json.dump(report, stream, indent=2)
                 print(json.dumps(report, indent=2))
@@ -248,10 +270,14 @@ def main():
                         help='Default 600 for normal login; 120 for direct map preview')
     parser.add_argument('--external-server', action='store_true',
                         help='Use running standalone API on loopback 80/443; requires --normal-login')
+    parser.add_argument('--trace-client', action='store_true',
+                        help='Filter owned client stdout into fixed error markers; no raw log retention')
     parser.add_argument('--normal-login', action='store_true',
                         help='Keep original login map; observe authenticated CITY requests without a host')
     args = parser.parse_args()
     print('Preview revision:', REVISION)
+    if args.trace_client and (not args.normal_login or not args.run):
+        parser.error('--trace-client requires --run --normal-login')
     if args.external_server and not args.normal_login:
         parser.error('--external-server requires --normal-login')
     if args.normal_login and not args.run:
@@ -277,7 +303,10 @@ def main():
                         raise ValueError('Memory counter check failed')
             finally:
                 db.close()
-            print('Packaged imports/backend/resource query OK. No game launched or user files edited.')
+            from tools.client_trace import classify_line
+            if classify_line(b'LogOnline: LoginOperation Failed - Error = Synthetic') != ('login_operation_failed',):
+                raise ValueError('Packaged client marker filter check failed')
+            print('Packaged imports/backend/resource query/client-marker filter OK. No game launched or user files edited.')
         elif args.check:
             print(json.dumps(check(args.game_root.absolute()), indent=2))
         else:
@@ -295,7 +324,7 @@ def main():
             else:
                 run_preview(args.game_root.absolute(), home, login_test_duration(args.seconds, args.normal_login),
                             normal_login=args.normal_login,
-                            external_server=args.external_server)
+                            external_server=args.external_server, trace_client=args.trace_client)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         print('STOP:', exc, file=sys.stderr)
         print('Keep all backups. If this preview changed files, use this EXE --restore with the game closed.', file=sys.stderr)
