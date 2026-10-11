@@ -1,0 +1,31 @@
+name: Native 2.1.1 port foundations
+on:
+  push:
+    branches: [work/ramsgate-native-211, main]
+    paths: ['native/host211/**', 'tools/pe211.py', 'tools/generate_host211_profile.py', 'tests/test_pe211.py', '.github/workflows/native-host211.yml']
+  pull_request:
+    paths: ['native/host211/**', 'tools/pe211.py', 'tools/generate_host211_profile.py', 'tests/test_pe211.py', '.github/workflows/native-host211.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test PE parser with synthetic images only
+        run: python -m unittest discover -s tests -p test_pe211.py -v
+      - name: Configure native library
+        run: cmake -S native/host211 -B build-host211 -DCMAKE_BUILD_TYPE=Release
+      - name: Compile native bindings and initialization gates
+        run: cmake --build build-host211 --config Release --parallel 2
+      - name: Test native gates (not the game)
+        run: ctest --test-dir build-host211 -C Release --output-on-failure -V
