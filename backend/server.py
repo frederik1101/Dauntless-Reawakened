@@ -10,18 +10,20 @@ import logging
 import socket
 import ssl
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .application import Application, Response, target
 from .database import Database
 from .request_diagnostics import describe_request
+from .safe_diagnostics import diagnostic_record
 
 LOG = logging.getLogger('reawakened.requests')
 MAX_BODY = 1048576
 
 
-def make_handler(app: Application, *, secure: bool = False):
+def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = False):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.0'
         server_version = 'ReawakenedResearch/0.4'
@@ -53,6 +55,20 @@ def make_handler(app: Application, *, secure: bool = False):
             LOG.info('method=%s route=%s status=%d service=%s endpoint=%s transport=%s route_key=%s',
                      method, response.route, response.status, label.service, label.endpoint,
                      'https' if secure else 'http', label.route_key)
+            if diagnostic:
+                # Fixed route and allowlisted JSON keys only. No raw request data.
+                try:
+                    from .application import bearer
+                    auth = {k.lower(): v for k, v in getattr(self, 'headers', {}).items()}
+                    token = bearer(auth)
+                    session_ok = app.sessions.resolve(token) is not None
+                except (PermissionError, ValueError, AttributeError):
+                    session_ok = False
+                LOG.info('DIAGNOSTIC %s', diagnostic_record(
+                    method, response.route, response.status, response.payload,
+                    getattr(self, '_diagnostic_request_bytes', 0),
+                    getattr(self, '_diagnostic_started_ns', time.perf_counter_ns()),
+                    session_valid=session_ok))
             self.send_response(response.status)
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Cache-Control', 'no-store')
@@ -65,6 +81,8 @@ def make_handler(app: Application, *, secure: bool = False):
             self.close_connection = True
 
         def _dispatch(self):
+            self._diagnostic_started_ns = time.perf_counter_ns()
+            self._diagnostic_request_bytes = 0
             try:
                 if not ipaddress.ip_address(self.client_address[0]).is_loopback:
                     return self._send(Response(403, route='non-loopback'))
@@ -79,6 +97,7 @@ def make_handler(app: Application, *, secure: bool = False):
                 length = int(raw_length)
                 if length > MAX_BODY:
                     return self._send(Response(413, route='body-limit'))
+                self._diagnostic_request_bytes = length
                 body = self.rfile.read(length)
                 if len(body) != length:
                     return self._send(Response(400, route='truncated-body'))
@@ -99,7 +118,7 @@ def make_handler(app: Application, *, secure: bool = False):
 
 
 def make_server(app: Application, host: str = '127.0.0.1', port: int = 8765,
-                tls: ssl.SSLContext | None = None) -> ThreadingHTTPServer:
+                tls: ssl.SSLContext | None = None, *, diagnostic: bool = False) -> ThreadingHTTPServer:
     if host not in {'127.0.0.1', '::1'}:
         raise ValueError('Only explicit loopback addresses are allowed')
     class LocalServer(ThreadingHTTPServer):
@@ -127,7 +146,7 @@ def make_server(app: Application, host: str = '127.0.0.1', port: int = 8765,
                     raise
             return connection, address
 
-    return LocalServer((host, port), make_handler(app, secure=tls is not None))
+    return LocalServer((host, port), make_handler(app, secure=tls is not None, diagnostic=diagnostic))
 
 
 def tls_context(cert: str | Path, key: str | Path) -> ssl.SSLContext:

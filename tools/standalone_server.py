@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Standalone loopback-only research API server. NOT a Dauntless gameplay host.
+
+Owns a persistent SQLite database and locally generated TLS certificate.
+Never changes the Windows trust store, hosts file, game files or Epic login.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import threading
+import time
+from pathlib import Path
+
+from backend.database import Database
+from backend.post_login import PostLoginApplication
+from backend.post_login_contracts import REVISION
+from backend.server import make_server, tls_context
+from tools.local_tls import generate
+from tools.post_login_backup import backup_before_post_login
+
+
+def default_home() -> Path:
+    root = os.environ.get('LOCALAPPDATA')
+    if not root:
+        raise ValueError('LOCALAPPDATA is required')
+    return Path(root) / 'DauntlessReawakenedServer'
+
+
+def serve(home: Path, port: int, *, stop: threading.Event | None = None,
+          client_ports: bool = False, diagnostic: bool = False) -> None:
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError('Choose an unprivileged port (1024-65535)')
+    home = home.absolute()
+    home.mkdir(parents=True, exist_ok=True)
+    tls = home / 'tls'
+    if not tls.exists():
+        generate(tls)
+    for filename in ('server.pem', 'server-key.pem', 'ca.pem'):
+        if not (tls / filename).is_file():
+            raise ValueError('Incomplete TLS directory; preserve it for review')
+    context = tls_context(tls / 'server.pem', tls / 'server-key.pem')
+    backup = backup_before_post_login(home / 'players.sqlite3')
+    if backup is not None:
+        print('Pre-upgrade SQLite backup retained:', backup, flush=True)
+    database = Database(home / 'players.sqlite3')
+    servers = []
+    workers = []
+    try:
+        # Client research mode matches the old preview's local-only EOS-sub lookup.
+        # It does NOT validate Epic tokens or prove account ownership.
+        app = PostLoginApplication(database, allow_unverified_eos_sub=client_ports,
+                                   maintenance_response={'isMaintenance': False})
+        # Bind every requested listener before starting any worker.
+        endpoints = [('127.0.0.1', port, context)] if not client_ports else [
+            (ip, listen_port, security) for listen_port, security in ((443, context), (80, None))
+            for ip in ('127.0.0.1', '::1')]
+        for ip, listen_port, tls_context_or_none in endpoints:
+            servers.append(make_server(app, ip, listen_port, tls_context_or_none,
+                                       diagnostic=diagnostic))
+        for server in servers:
+            worker = threading.Thread(target=server.serve_forever,
+                                      kwargs={'poll_interval': 0.1}, daemon=True)
+            worker.start()
+            workers.append(worker)
+        print('Reawakened standalone API: https://127.0.0.1:%d/health' % (443 if client_ports else port), flush=True)
+        print('Database: ' + str(home / 'players.sqlite3'), flush=True)
+        print('LOCAL API ONLY. No Epic login, native gameplay host, Ramsgate join or playable character.', flush=True)
+        if client_ports:
+            print('CLIENT PORTS READY on loopback 80/443. No game redirect performed.', flush=True)
+            print('WARNING: EOS-sub is an UNVERIFIED local lookup key, not Epic authentication.', flush=True)
+        try:
+            (stop or threading.Event()).wait()
+        except KeyboardInterrupt:
+            pass
+    finally:
+        for server in servers[:len(workers)]:
+            server.shutdown()
+        for server in servers:
+            server.server_close()
+        for worker in workers:
+            worker.join(timeout=5)
+        database.close()
+
+
+def self_test() -> dict:
+    database = Database(':memory:')
+    try:
+        app = PostLoginApplication(database)
+        health = app.handle('GET', 'localhost', '/health', {})
+        denied = app.handle('GET', 'dauntless-prod.steelyard.ca',
+                            '/character', {}, secure=True)
+        if (health.status != 200 or denied.status != 401 or
+                health.payload.get('post_login_revision') != REVISION):
+            raise ValueError('Backend self-test failed')
+        account = database.account('packaged-self-test')['accountId']
+        session = app.sessions.create(account, linked_epic_id='synthetic-epic-id')
+        mapped = app.handle('POST', 'auth-prod.steelyard.ca', '/account/mapping',
+            {'Authorization': 'Bearer ' + session.session_token},
+            b'{"srcAccountType":"epic","ids":["synthetic-epic-id"]}', secure=True)
+        if (mapped.status != 200 or
+                mapped.payload['accountMappings']['synthetic-epic-id']['accountId'] != account):
+            raise ValueError('Packaged account mapping failed')
+        return {'api': 'passed', 'unauthenticated_character': 'denied',
+                'post_login_revision': REVISION, 'local_mapping': 'passed',
+                'gameplay_host': 'not_implemented', 'epic_auth': 'not_implemented'}
+    finally:
+        database.close()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--home', type=Path)
+    parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('--diagnostic', action='store_true',
+                        help='Extra value-free JSON shape, timing and session diagnostics')
+    parser.add_argument('--client-ports', action='store_true',
+                        help='Bind loopback HTTP 80 and HTTPS 443 for a separate reversible client test')
+    args = parser.parse_args()
+    print('Server revision:', REVISION)
+    try:
+        if args.self_test:
+            print(json.dumps(self_test(), indent=2))
+        else:
+            logging.Formatter.converter = time.gmtime
+            logging.basicConfig(level=logging.INFO, format='%(asctime)sZ %(levelname)s %(message)s',
+                                datefmt='%Y-%m-%dT%H:%M:%S')
+            serve(args.home or default_home(), args.port, client_ports=args.client_ports,
+                  diagnostic=args.diagnostic)
+    except (OSError, ValueError) as exc:
+        parser.exit(1, 'Server stopped: %s\n' % exc)
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

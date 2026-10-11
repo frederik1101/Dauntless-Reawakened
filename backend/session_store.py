@@ -19,6 +19,8 @@ class Session:
     session_token: str = field(repr=False)
     account_id: str
     expires_at: float
+    # Ephemeral binding from the unverified research exchange, never a token.
+    linked_epic_id: str | None = field(default=None, repr=False)
 
 
 class SessionStore:
@@ -34,16 +36,20 @@ class SessionStore:
     def _key(token: str) -> str:
         return hashlib.sha256(token.encode()).hexdigest()
 
-    def create(self, account_id: str) -> Session:
+    def create(self, account_id: str, *, linked_epic_id: str | None = None) -> Session:
         if not account_id:
             raise ValueError('Missing account')
+        if linked_epic_id is not None and (
+                not isinstance(linked_epic_id, str) or not 1 <= len(linked_epic_id) <= 256 or
+                any(ord(c) < 33 or ord(c) > 126 for c in linked_epic_id)):
+            raise ValueError('Invalid linked research identity')
         with self._lock:
             now = self.clock()
             self._entries = {k: v for k, v in self._entries.items() if v.expires_at > now}
             if len(self._entries) >= self.limit:
                 raise OverflowError('Session capacity reached')
             session = Session(secrets.token_hex(16), secrets.token_urlsafe(32),
-                              account_id, now + self.ttl)
+                              account_id, now + self.ttl, linked_epic_id)
             self._entries[self._key(session.session_token)] = session
             return session
 

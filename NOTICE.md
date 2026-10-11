@@ -49,3 +49,17 @@ upstream material too. Source:
 https://github.com/pranav158/Mystic-Paradox/blob/fcf915cb918edbe9f030d03b62c94f4879dc655a/ParadoxBackend/src/routes/inventory.ts
 
 See docs/INVENTORY_MIGRATION_PORT.md for evidence, differences, tests and limitations.
+
+## Post-login response port — 11 October 2026
+
+backend/post_login_contracts.py adapts three tuning response shapes and selected
+store response fields from Mystic Paradox tuning.ts/store.ts at revision
+386302c1333fe3dfcb2baf176edc101e200f5081. Original copyright and Section 7 terms
+remain applicable to that material. Identity mapping follows mixutin's Revived
+social.md (blob 4ea2ddf4444f0c018b109e6c0aaba15545ca6f64), distinguishing its 1.4.4
+parser evidence and 2.1.1 request observation. The implementation scopes mappings
+to a local session's own external/Phoenix identity, corrects linkedAccounts,
+uses a read-only local SQLite balance snapshot, and reports no creator affiliation.
+The tuning defaults and negative creator state are experiments, not recovered
+final 2.1.1 gameplay data or proof of client acceptance. Sources, modifications,
+validation boundaries and complete running instructions: docs/POST_LOGIN_FIXES.md.
