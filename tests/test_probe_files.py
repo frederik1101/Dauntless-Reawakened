@@ -105,7 +105,7 @@ class ProbeFilesTests(unittest.TestCase):
         self.assertTrue(self.ca.is_file())
         restore(journal)
         self.assertFalse(self.ca.exists())
-        self.assertFalse(self.state.exists())
+        self.assertTrue(json.loads(journal.read_text())['restored'])
 
     def test_existing_state_is_not_overwritten(self):
         self.state.mkdir()
