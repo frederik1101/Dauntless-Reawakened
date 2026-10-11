@@ -13,8 +13,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .application import Application, Response
+from .application import Application, Response, target
 from .database import Database
+from .request_diagnostics import describe_request
 
 LOG = logging.getLogger('reawakened.requests')
 MAX_BODY = 1048576
@@ -23,7 +24,7 @@ MAX_BODY = 1048576
 def make_handler(app: Application, *, secure: bool = False):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.0'
-        server_version = 'ReawakenedResearch/0.2'
+        server_version = 'ReawakenedResearch/0.4'
         sys_version = ''
 
         def setup(self):
@@ -41,8 +42,17 @@ def make_handler(app: Application, *, secure: bool = False):
             body = response.body()
             # Record the fixed route before sending the response, so a completed
             # request cannot race ahead of its audit entry in tests/diagnostics.
-            method = self.command if self.command in {'GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH'} else 'OTHER'
-            LOG.info('method=%s route=%s status=%d', method, response.route, response.status)
+            command = getattr(self, 'command', None)
+            method = command if command in {'GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH'} else 'OTHER'
+            try:
+                headers = getattr(self, 'headers', {})
+                service, endpoint = target(headers.get('Host', ''), getattr(self, 'path', ''))
+            except (ValueError, TypeError):
+                service, endpoint = 'invalid', ''
+            label = describe_request(service, endpoint)
+            LOG.info('method=%s route=%s status=%d service=%s endpoint=%s transport=%s route_key=%s',
+                     method, response.route, response.status, label.service, label.endpoint,
+                     'https' if secure else 'http', label.route_key)
             self.send_response(response.status)
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Cache-Control', 'no-store')

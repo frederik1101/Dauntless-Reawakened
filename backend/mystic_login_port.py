@@ -16,6 +16,8 @@ import copy
 import json
 
 from .application import Application, Response, bearer, target
+from .contract import linked_account
+from .login_routes import is_eos_account_link
 
 SOURCE_URL = ('https://github.com/pranav158/Mystic-Paradox/blob/'
               'fd795c6434abd63872f4af277c90747239f1ed40/ParadoxBackend/src/routes/login.ts')
@@ -71,6 +73,14 @@ class LoginPortApplication(Application):
                 return Response(503, route='experimental-maintenance')
             if self.maintenance_response is not None:
                 return Response(200, copy.deepcopy(self.maintenance_response), 'experimental-maintenance')
+        # Candidate compatibility alias. The old log does not identify its 404:
+        # this must remain a hypothesis until a real client requests this route.
+        # The existing epic route and all session/ownership checks are unchanged.
+        if (method == 'GET' and service == 'gamesession-prod'
+                and is_eos_account_link(endpoint)):
+            if not secure:
+                return Response(503, route='candidate-account-link-epiceos')
+            return Response(200, linked_account(), 'candidate-account-link-epiceos')
         label = PORT_ROUTES.get((method, service, endpoint))
         if label is None:
             return super().handle(method, host, path, headers, body, secure=secure)
