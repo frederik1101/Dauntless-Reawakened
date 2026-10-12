@@ -1,0 +1,48 @@
+name: UE5 dedicated server (self-hosted)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # The runner must be privately administered and have a licensed UE 5.1.1
+    # source build. Do not run untrusted PR code on this runner.
+    runs-on: [self-hosted, windows, x64, ue511]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate UE source build
+        shell: pwsh
+        env:
+          UE_ROOT: ${{ vars.UE511_ROOT }}
+        run: |
+          if (-not $env:UE_ROOT) { throw "Set repository variable UE511_ROOT to a local UE5.1.1 source-build directory on the runner." }
+          $ubt = Join-Path $env:UE_ROOT "Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll"
+          if (-not (Test-Path $ubt)) { throw "UnrealBuildTool not found. Install/build the authorized UE5.1.1 source tree on the runner." }
+          "UE build tools detected."
+      - name: Build dedicated server
+        shell: pwsh
+        env:
+          UE_ROOT: ${{ vars.UE511_ROOT }}
+        run: |
+          $project = Join-Path $env:GITHUB_WORKSPACE "ReawakenedGameServer\ReawakenedNetLab.uproject"
+          $ubt = Join-Path $env:UE_ROOT "Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll"
+          & dotnet $ubt ReawakenedNetLabServer Win64 Development "-Project=$project" -NoHotReload -WaitMutex
+          if ($LASTEXITCODE -ne 0) { throw "UE server compilation failed ($LASTEXITCODE)." }
+      - name: Collect build metadata
+        shell: pwsh
+        run: |
+          $dir = "ReawakenedGameServer\Binaries\Win64"
+          if (-not (Test-Path $dir)) { throw "Expected server binary directory not found." }
+          Get-ChildItem $dir -File | Select-Object Name,Length | Format-Table | Out-String | Write-Host
+      - name: Upload build output (not a standalone packaged server)
+        uses: actions/upload-artifact@v4
+        with:
+          name: reawakened-ue511-server-build-output
+          path: ReawakenedGameServer/Binaries/Win64/
+          if-no-files-found: error
+          retention-days: 3
