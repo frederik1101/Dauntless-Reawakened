@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Native GUI wrapper for two existing Reawakened research helpers.
 // No Epic credentials, tokens, passwords, game patches, or DLL injection.
-#define UNICODE
-#define _UNICODE
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 #include <shellapi.h>
 #include <wincrypt.h>
@@ -566,7 +562,7 @@ void createInterface() {
     auto pref=readPreferences();
     SetWindowTextW(g.alias,pref.alias.c_str());
     selectVariant(pref.variant);
-    SendMessageW(g.remember,BM_SETCHECK,pref.remember?BST_CHECKED:BST_UNCHECKED,0);
+    SendMessageW(g.remember,BM_SETCHECK,pref.remembered?BST_CHECKED:BST_UNCHECKED,0);
     g.restoreNeeded=!journalRestoredOrAbsent();
     if(g.restoreNeeded) setStatus(L"Tidligere test mangler gendannelse. Luk spillet og klik Gendan.");
     updateButtons();
