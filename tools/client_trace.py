@@ -63,6 +63,11 @@ def classify_line(line: bytes) -> tuple[str, ...]:
         result.append('eos_user_manager_failed')
     if 'Failed to refresh ConnectLogin' in text:
         result.append('eos_connect_refresh_failed')
+    # Preserve cancellation only when the error itself explicitly names it.
+    # Never infer cancellation merely from a generic failure or the user closing.
+    cancellation = re.search(r'LoginOperation Failed - Error = (?:EOS_)?(?:Canceled|Cancelled|UserCanceled|UserCancelled)(?=$|[\s,;])', text)
+    if cancellation:
+        result.append('login_cancelled_explicit')
     # A marker means the LINE was observed, not that its message is authoritative.
     return tuple(dict.fromkeys(result))
 
@@ -163,3 +168,18 @@ class ClientTrace:
                 'meaning': 'Marker observations only; no markers or no output is inconclusive. '
                            'Neither login nor gameplay is verified by this report.',
             }
+
+# Exact log-message literals present in the supplied 2.1.1 image. Presence in
+# the image establishes spelling only, not that a particular branch executed.
+MARKERS += (
+    ('identity_mapping_empty', 'FOnlineUserPhoenix::QueryExternalIdMappings - No Valid mappings came back'),
+    ('identity_mapping_request_failed', 'QueryExternalIdMappings request failed.'),
+    ('identity_mapping_callback', 'FOnlineUserPhoenix::QueryExternalIdMappings - OnPhoenixMappingComplete'),
+    ('login_user_account_unavailable', 'FArchonAdditionalLoginSteps::CheckCharacterCompatibility: Unable to retrieve user account.'),
+    ('login_attributes_user_id_unavailable', 'ResolveUserAttributesOnLogin: Unable to get user ID for local player'),
+    ('login_attributes_account_unavailable', 'ResolveUserAttributesOnLogin: Unable to get user account for local player'),
+    ('login_attributes_character_unavailable', 'ResolveUserAttributesOnLogin: Unable to get character ID for local player'),
+    ('login_time_read_failed', 'RecordLoginTime: Unable to read character data'),
+    ('login_time_saved', 'RecordLoginTime: New login time set successfully'),
+    ('login_previous_time_saved', 'RecordLoginTime: Last login time & last changelist set successfully'),
+)

@@ -1,4 +1,48 @@
-# Local login-continuity test — login-continuity-20261011.4
+# New paired package — identity-mapping-20261012.5
+
+Use BOTH new executables. This is a conditional identity-mapping compatibility
+experiment, NOT a confirmed login fix. Detailed changes and evidence limits are
+in docs/IDENTITY_MAPPING_211.md in Corresponding-Source.zip.
+
+Stop the old programs only after the runner confirms restoration. Preserve every
+AppData database, TLS directory and rollback backup. Extract over the application
+files in C:\ReawakenedContinuityTest (not into the Dauntless game directory).
+
+Administrator PowerShell 1:
+
+```powershell
+cd C:\ReawakenedContinuityTest
+.\Reawakened-Local-Server.exe --client-ports --diagnostic --presence
+```
+
+Wait for CLIENT PORTS READY. Administrator PowerShell 2:
+
+```powershell
+cd C:\ReawakenedContinuityTest
+.\Reawakened-Ramsgate-Preview.exe --run --normal-login --external-server --trace-client --seconds 600
+```
+
+Both must report identity-mapping-20261012.5. Confirm MAP and perform normal Epic
+login/EULA acceptance. Nothing impersonates Epic or changes the original game EXE.
+If PLAY stays visible, one click is enough for this test. The absent native host
+still prevents a playable Ramsgate. Close the game normally once the result is
+clear, and wait for rollback confirmation before stopping the server with Ctrl+C.
+If rollback fails, leave the game closed and run the preview EXE with --restore.
+
+Share the NEW sanitized server log from
+%LOCALAPPDATA%\DauntlessReawakenedServer\logs and the result:
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\DauntlessReawakenedMapTest\active\map-preview-result.json"
+```
+
+Never share full AppData, database, certificate keys, sign-in codes or raw logs.
+
+---
+
+## Previous continuity capabilities (retained)
+
+### Earlier revision login-continuity-20261011.4
 
 **Experimental backend, NOT a Ramsgate gameplay server.** No guarantee that PLAY
 stays visible. Both executables must come from this exact paired build. The
@@ -49,77 +93,3 @@ of HTTP 200 is not proof of bytes received or data accepted by the client.
    reported as inconclusive. The external-mode report now uses null for counters
    it does not collect, rather than misleading zeros.
 
-## Windows test after the paired build is green
-
-Close the old game, wait for its runner to confirm restoration, and stop the old
-server. Preserve ALL AppData folders, databases, TLS files and backups. Extract
-this ZIP into `C:\ReawakenedContinuityTest`. The same `players.sqlite3` and existing
-certificates in `%LOCALAPPDATA%\DauntlessReawakenedServer` are reused. Do not run
-multiple server versions on that database. No new schema is added by this revision.
-
-Administrator PowerShell 1:
-
-```powershell
-cd C:\ReawakenedContinuityTest
-.\Reawakened-Local-Server.exe --client-ports --diagnostic --presence
-```
-
-Check `Server revision: login-continuity-20261011.4` and `CLIENT PORTS READY`.
-The presence experiment is optional: omit `--presence` for the comparison run;
-the rest of the server corrections and diagnostics are unchanged.
-
-Administrator PowerShell 2:
-
-```powershell
-cd C:\ReawakenedContinuityTest
-.\Reawakened-Ramsgate-Preview.exe --run --normal-login --external-server --trace-client --seconds 600
-```
-
-Check the SAME revision, type MAP and complete the usual Epic sign-in yourself.
-Keep both consoles open. If PLAY stays visible, click once. There is no native
-host: matchmaking may wait or fail with NO_LOCAL_HOST_READY. Do not confuse this
-with PLAY/login success or a rendered/joined Ramsgate world.
-
-After seeing the outcome, close the game normally. Wait for restoration before
-stopping the server with Ctrl+C. If restoration is not confirmed, close the game
-and use the matching executable:
-
-```powershell
-.\Reawakened-Ramsgate-Preview.exe --restore
-```
-
-Share the sanitized server log printed at startup and this runner result only:
-
-```powershell
-Get-Content "$env:LOCALAPPDATA\DauntlessReawakenedMapTest\active\map-preview-result.json"
-```
-
-Do not upload databases, TLS private keys, the complete state folder, raw native
-logs or sign-in codes. If there are no PRESENCE events, that experiment was not
-used by the client; do not infer that it repaired login. If there are no client
-markers, the collector is inconclusive, not evidence of a successful parse.
-
-## Validation boundaries
-
-The source suite tests real loopback HTTP/TLS and WebSocket handshakes, a socket
-remaining idle beyond the old five-second HTTP timeout, ping/pong, fragmentation,
-invalid/masked frames, session/capacity/origin controls and shutdown, plus concurrent
-identical character saves and the previous rollback and privacy regressions.
-There are no game-client files in CI. No genuine Epic or native game-host session
-is created by tests. Check the exact Actions run and BUILD-COMMIT.txt for the
-Windows packaging result; passing tests do not establish a fixed in-game reset.
-
-## Primary sources / research vs implementation
-
-- The user's redacted route logs: observations summarized above, not published.
-- 2.1.1 presence and character shapes: mixutin/dauntless-revived,
-  docs/findings/backend-contract.md, blob 55cdc3b6cd0ac091ab9cb27ddb696b82cfd265a2.
-  https://github.com/mixutin/dauntless-revived/blob/dauntless-revived/docs/findings/backend-contract.md
-  Presence is explicitly STATIC and not opened in that project's 2.1.1 tests.
-- Mystic register acknowledgement: commit 386302c1333fe3dfcb2baf176edc101e200f5081,
-  ParadoxBackend/src/routes/matchmaking.ts. It sends an empty object; no host-ready
-  state is inferred. Existing AGPL and additional terms are retained.
-- WebSocket handshake/control frames: https://www.rfc-editor.org/rfc/rfc6455.html
-- wsproto 1.3.2 API: https://python-hyper.org/projects/wsproto/en/stable/api.html
-- Byte-identical retry acknowledgement is an explicit local compatibility choice,
-  not claimed as a captured official server response on duplicate writes.

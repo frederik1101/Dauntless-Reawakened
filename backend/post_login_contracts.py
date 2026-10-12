@@ -13,8 +13,9 @@ from __future__ import annotations
 import copy
 import json
 import re
+from .research_identity import same_identity
 
-REVISION = 'login-continuity-20261011.4'
+REVISION = 'identity-mapping-20261012.5'
 MAX_BODY = 65536
 TUNING = {
     'seasonal_event_schedule': {'ScheduledItems': []},
@@ -87,8 +88,9 @@ def mapping_response(body: bytes, account: str, epic: str | None) -> dict:
     mappings = {}
     if epic is not None:
         asked, answer, kind = (epic, account, 'phoenix') if source == 'epic' else (account, epic, 'epic')
-        if asked in ids:
-            mappings[asked] = {'accountId': answer, 'accountType': kind}
+        for requested in ids:
+            if same_identity(requested, asked):
+                mappings[requested] = {'accountId': answer, 'accountType': kind}
     # Root and wrapped object are both documented in Revived's compatibility reply.
     return {'accountMappings': mappings, 'code': 'OK', 'message': '',
             'payload': {'accountMappings': copy.deepcopy(mappings)}}
@@ -100,7 +102,7 @@ def public_account_response(body: bytes, account: str, epic: str | None) -> dict
         raise UnsupportedRequest('Unsupported public-account query')
     if not identifier(data['accountId']):
         raise ValueError('Invalid account ID')
-    if data['accountId'] != account:
+    if not same_identity(data['accountId'], account):
         raise PermissionError('Other account not available in solo test')
     # Do not claim the local hashed Phoenix ID is an Epic ID. A lab account has none.
     links = [] if epic is None else [{'accountId': epic, 'accountType': 'epic'}]

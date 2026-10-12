@@ -11,6 +11,7 @@ import hmac
 import json
 import secrets
 from .safe_diagnostics import kind, shape
+from .research_identity import same_identity
 
 _KEY = secrets.token_bytes(32)
 MAX_JSON_BYTES = 262144
@@ -117,7 +118,7 @@ def authentication(app, headers, route: str) -> dict:
             'external_binding_present': bool(getattr(session, 'linked_epic_id', None))}
 
 
-def response_details(route: str, payload: object, request_body: bytes) -> dict:
+def response_details(route: str, payload: object, request_body: bytes, *, session=None) -> dict:
     """Only route-specific, finite metadata; no generic JSON dump."""
     details = {}
     if isinstance(payload, dict):
@@ -147,6 +148,19 @@ def response_details(route: str, payload: object, request_body: bytes) -> dict:
         if isinstance(mapping, dict) and isinstance(ids, list) and len(ids) <= 100 and all(isinstance(i,str) for i in ids):
             details['mapping'] = {'requested_count': len(ids), 'returned_count': len(mapping),
                                   'all_requested_ids_mapped': all(i in mapping for i in ids)}
+            source = request.get('srcAccountType')
+            details['mapping']['source'] = (source.lower() if isinstance(source, str)
+                and source.lower() in {'epic', 'phoenix'} else 'unrecognised')
+            if session is not None:
+                identity = getattr(session, 'research_identity', None)
+                details['mapping']['matches_local_account'] = sum(
+                    same_identity(i, session.account_id) for i in ids)
+                details['mapping']['matches_epic_binding'] = sum(
+                    same_identity(i, session.linked_epic_id) for i in ids)
+                details['mapping']['matches_exchange_subject'] = (None if identity is None else
+                    sum(same_identity(i, identity.subject) for i in ids))
+                details['mapping']['binding'] = ({'source': 'local_session_without_projection',
+                    'verified': False} if identity is None else identity.summary())
     if route == 'ramsgate-register':
         details['register_reply'] = 'empty_object_ack' if isinstance(payload, dict) and not payload else 'other_shape'
     return details

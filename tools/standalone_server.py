@@ -150,9 +150,22 @@ def self_test() -> dict:
         database.save(account, character['id'], '{}', 1, allow_identical_retry=True)
         if database.save(account, character['id'], '{}', 1, allow_identical_retry=True) != {'data': '{}'}:
             raise ValueError('Packaged character retry failed')
+        # Exercise the packaged typed-identity path with synthetic values only.
+        import base64
+        from backend.research_identity import parse_research_identity
+        from backend.post_login_contracts import mapping_response
+        claims = {'sub': 'a1' * 16, 'act': {'eat': 'epicgames', 'eaid': 'b2' * 16}}
+        synthetic = 'e30.' + base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=') + '.c3ludGhldGlj'
+        projection = parse_research_identity(synthetic)
+        query = json.dumps({'srcAccountType': 'epic', 'ids': [('b2' * 16).upper()]}).encode()
+        result = mapping_response(query, account, projection.epic_id)
+        if (projection.subject == projection.epic_id or
+                len(result['accountMappings']) != 1):
+            raise ValueError('Packaged typed identity mapping failed')
         return {'api': 'passed', 'unauthenticated_character': 'denied',
                 'post_login_revision': REVISION, 'local_mapping': 'passed',
                 'presence_codec': 'passed', 'character_retry': 'passed',
+                'typed_identity_mapping': 'passed',
                 'gameplay_host': 'not_implemented', 'epic_auth': 'not_implemented'}
     finally:
         database.close()

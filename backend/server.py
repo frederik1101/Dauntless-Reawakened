@@ -62,11 +62,13 @@ def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = F
                      'https' if secure else 'http', label.route_key)
             if diagnostic:
                 # Fixed route and allowlisted JSON keys only. No raw request data.
+                trace_session = None
                 try:
                     from .application import bearer
                     auth = {k.lower(): v for k, v in getattr(self, 'headers', {}).items()}
                     token = bearer(auth)
-                    session_ok = app.sessions.resolve(token) is not None
+                    trace_session = app.sessions.resolve(token)
+                    session_ok = trace_session is not None
                 except (PermissionError, ValueError, AttributeError):
                     session_ok = False
                 if response.route in PUBLIC_ROUTES or response.route == 'epiceos-session-research':
@@ -85,8 +87,13 @@ def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = F
                         'response_bytes': len(body),
                         'authentication': authentication(app, getattr(self, 'headers', {}), response.route),
                         **response_details(response.route, response.payload,
-                                           getattr(self, '_diagnostic_body', b'')),
+                                           getattr(self, '_diagnostic_body', b''), session=trace_session),
                     }
+                    if response.route == 'epiceos-session-research' and response.status == 200:
+                        issued = app.sessions.resolve(response.payload['payload']['sessiontoken'])
+                        projection = getattr(issued, 'research_identity', None)
+                        if projection is not None:
+                            trace['identity_projection'] = projection.summary()
                     LOG.info('PROTOCOL_TRACE %s', json.dumps(trace, separators=(',', ':'), allow_nan=False))
                 except Exception:
                     # Diagnostic failures must not change the application response.

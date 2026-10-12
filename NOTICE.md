@@ -81,3 +81,17 @@ byte-identical local character-save retry handling. No original game files or
 Mystic native runtime are included. Presence source evidence is the public
 2.1.1 static contract; its relevance to the real-client reset is unverified.
 See docs/LOGIN_CONTINUITY.md and THIRD_PARTY_NOTICES.md.
+
+## Reawakened modification — 12 October 2026: identity mapping test
+
+The post-login session reply includes the error_code and legacy sessionToken
+fields used by Mystic Paradox's login.ts (blob
+3b3f95af6ac1a24f542c33a06d8f65dac83477b6). The lowercase sessiontoken remains
+primary. Our local random session credentials are retained; the upstream
+external-token echo shortcut and unified Epic/Phoenix namespace are NOT copied.
+
+ResearchIdentity and the new relationship diagnostics are original experimental
+adaptations, not a claim that Mystic supports Dauntless 2.1.1. See
+IDENTITY_MAPPING_211.md for the conditional claim projection and evidence limits.
+No Epic signatures, game data, progression constants, credentials or game
+executable are bundled. Existing AGPL-3.0-only and Section 7 notices remain.

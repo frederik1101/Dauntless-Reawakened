@@ -90,7 +90,7 @@ class ProtocolTraceTests(unittest.TestCase):
         payload = {'accountMappings':{}}
         request = b'{"srcAccountType":"epic","ids":["PRIVATE-ID"]}'
         result = response_details('post-login-account-mapping',payload,request)
-        self.assertEqual(result['mapping'], {'requested_count':1,'returned_count':0,'all_requested_ids_mapped':False})
+        self.assertEqual(result['mapping'], {'requested_count':1,'returned_count':0,'all_requested_ids_mapped':False,'source':'epic'})
         self.assertNotIn('PRIVATE',str(result))
 
     def test_character_save_echo_check_and_versions(self):

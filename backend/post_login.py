@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .application import Response, bearer, target
 from .protocol_211 import game_session_response
+from .research_identity import parse_research_identity
 from .database import VersionConflict
 from .ramsgate_application import RamsgateApplication
 from .post_login_contracts import (
@@ -23,6 +24,30 @@ class PostLoginApplication(RamsgateApplication):
         session = self.sessions.create(account['accountId'], linked_epic_id=epic)
         return Response(200, game_session_response(session.session_id, session.session_token), route)
 
+    def _research_exchange(self, lower, *, secure: bool) -> Response:
+        route = 'epiceos-session-research'
+        if not self.allow_unverified_eos_sub or not secure:
+            return Response(503, route=route)
+        try:
+            identity = parse_research_identity(bearer(lower))
+            # Preserve the exact old lookup key. Never re-key or merge a player
+            # database using the external ID, an account-link URL or mapping body.
+            account = self.database.account('eos-research:' + identity.subject)
+            session = self.sessions.create(account['accountId'],
+                linked_epic_id=identity.epic_id, research_identity=identity)
+            payload = game_session_response(session.session_id, session.session_token)
+            # Mystic login.ts compatibility fields. These are OUR local session
+            # values, not an echo of the real Epic token or a fabricated Epic JWT.
+            payload['payload']['error_code'] = None
+            payload['payload']['sessionToken'] = session.session_token
+            return Response(200, payload, route)
+        except PermissionError:
+            return Response(401, route=route)
+        except (ValueError, TypeError, RecursionError):
+            return Response(400, route=route)
+        except OverflowError:
+            return Response(503, route=route)
+
     def handle(self, method, host, path, headers, body=b'', *, secure=False):
         lower = {key.lower(): value for key, value in headers.items()}
         if 'origin' in lower:
@@ -36,6 +61,9 @@ class PostLoginApplication(RamsgateApplication):
             return Response(old.status, {**old.payload, 'post_login_revision': REVISION,
                 'post_login_compatibility': True, 'post_login_client_verified': False,
                 'game_compatible': False}, old.route)
+        if (method, service, endpoint) == (
+                'PUT', 'gamesession-prod', '/gamesession/epiceos'):
+            return self._research_exchange(lower, secure=secure)
         routes = {
             ('POST', 'dauntless-prod', '/character'): 'character',
             ('POST', 'auth-prod', '/account/mapping'): 'post-login-account-mapping',
