@@ -1,0 +1,9 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.1",
+  "Category": "Network compatibility research",
+  "Description": "Blank UE network laboratory, not a Dauntless game server.",
+  "Modules": [
+    { "Name": "ReawakenedNetLab", "Type": "Runtime", "LoadingPhase": "Default" }
+  ]
+}
