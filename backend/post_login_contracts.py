@@ -15,7 +15,7 @@ import json
 import re
 from .research_identity import same_identity
 
-REVISION = 'character-profile-20261012.6'
+REVISION = 'character-isolation-20261012.7'
 MAX_BODY = 65536
 TUNING = {
     'seasonal_event_schedule': {'ScheduledItems': []},

@@ -1,8 +1,8 @@
-# Character-profile test — character-profile-20261012.6
+# Character-field isolation test — character-isolation-20261012.7
 
 A paired Windows server and client helper for the original 2.1.1 client.
 This is an experimental comparison, NOT proof of a completed login or a
-Ramsgate gameplay server. Both EXEs must show character-profile-20261012.6.
+Ramsgate gameplay server. Both EXEs must show character-isolation-20261012.7.
 
 ## Before starting
 
@@ -16,7 +16,7 @@ Windows certificate trust store.
 
 ```powershell
 cd C:\ReawakenedContinuityTest
-.\Reawakened-Local-Server.exe --client-ports --diagnostic --presence --mystic-profile
+.\Reawakened-Local-Server.exe --client-ports --diagnostic --presence --mystic-profile --profile-variant without-appearance
 ```
 
 Wait for CLIENT PORTS READY. The banner must also say EXPERIMENTAL MYSTIC
@@ -38,7 +38,17 @@ Confirm MAP, sign into Epic and accept the game terms yourself. Leave both
 PowerShell windows open. Click PLAY once if it remains visible. No native
 gameplay host is included, so a later matchmaking failure remains possible.
 
-The snapshot adds only missing profile metadata and structural appearance.
+## Isolating the new regression
+
+The .6 run failed at character reads before inventory migration or tuning,
+whereas .5 with two character fields reached these later stages. The new
+default without-appearance excludes only AppearanceData; it is a comparison,
+not a claimed fix. Other allowed variants are baseline, appearance-only,
+flags-only, metadata-only, without-flags, without-metadata and full.
+Each run uses a fresh snapshot of the unchanged original database. Test
+variants sequentially, never in parallel; do not merge their data.
+
+The snapshot adds only selected missing profile metadata and structural appearance.
 It retains your account/character identities and existing strings. It does not
 import 1.12 cosmetics, quests or its numeric intro progression; does not advance
 progress or grant items. New times and LastChangelist are SYNTHETIC test

@@ -32,7 +32,11 @@ def default_home() -> Path:
 
 def serve(home: Path, port: int, *, stop: threading.Event | None = None,
           client_ports: bool = False, diagnostic: bool = False,
-          presence: bool = False, mystic_profile: bool = False) -> None:
+          presence: bool = False, mystic_profile: bool = False,
+          profile_variant: str = 'full') -> None:
+    from backend.character_profile import PROFILE_VARIANTS
+    if profile_variant not in PROFILE_VARIANTS or (profile_variant != 'full' and not mystic_profile):
+        raise ValueError('A profile variant requires --mystic-profile and a known variant')
     if presence and not client_ports:
         raise ValueError('Presence requires explicit --client-ports mode')
     if type(port) is not int or not 1024 <= port <= 65535:
@@ -55,7 +59,7 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         print('Pre-upgrade SQLite backup retained:', backup, flush=True)
     if mystic_profile:
         from backend.character_profile import ProfileDatabase
-        database = ProfileDatabase(database_path)
+        database = ProfileDatabase(database_path, variant=profile_variant)
         print('EXPERIMENTAL MYSTIC PROFILE: fresh DB copy; original players.sqlite3 unchanged.', flush=True)
         print('PROFILE_INITIALIZATION ' + json.dumps(database.profile_summary), flush=True)
     else:
@@ -176,6 +180,10 @@ def self_test() -> dict:
         profile, added = normalize_profile('{"PlayerAccountProgressStep":"EnteredRamsgate"}')
         if len(added) != 8 or not all(isinstance(v, str) for v in json.loads(profile).values()):
             raise ValueError('Packaged profile initializer failed')
+        from backend.character_profile import PROFILE_VARIANTS
+        if set(PROFILE_VARIANTS) != {'full', 'without-appearance', 'without-flags',
+            'without-metadata', 'appearance-only', 'flags-only', 'metadata-only', 'baseline'}:
+            raise ValueError('Packaged variant allowlist mismatch')
         return {'profile_initializer': 'passed', 'api': 'passed', 'unauthenticated_character': 'denied',
                 'post_login_revision': REVISION, 'local_mapping': 'passed',
                 'presence_codec': 'passed', 'character_retry': 'passed',
@@ -192,6 +200,9 @@ def main() -> int:
     parser.add_argument('--self-test', action='store_true')
     parser.add_argument('--mystic-profile', action='store_true',
                         help='Test missing-field initialization on a fresh SQLite copy, never the original')
+    from backend.character_profile import PROFILE_VARIANTS
+    parser.add_argument('--profile-variant', choices=sorted(PROFILE_VARIANTS), default='full',
+                        help='Select which documented character fields are added (requires --mystic-profile)')
     parser.add_argument('--presence', action='store_true',
                         help='Optional local presence WebSocket; not game-host emulation')
     parser.add_argument('--diagnostic', action='store_true',
@@ -209,7 +220,7 @@ def main() -> int:
                                 datefmt='%Y-%m-%dT%H:%M:%S')
             serve(args.home or default_home(), args.port, client_ports=args.client_ports,
                   diagnostic=args.diagnostic, presence=args.presence,
-                  mystic_profile=args.mystic_profile)
+                  mystic_profile=args.mystic_profile, profile_variant=args.profile_variant)
     except (OSError, ValueError) as exc:
         parser.exit(1, 'Server stopped: %s\n' % exc)
     return 0

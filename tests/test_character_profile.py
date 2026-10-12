@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from backend.character_profile import FIELDS, ProfileDatabase, normalize_profile
+from backend.character_profile import FIELDS, PROFILE_VARIANTS, ProfileDatabase, normalize_profile
 from backend.database import Database, VersionConflict
 from backend.post_login import PostLoginApplication
 from backend.server import make_server, tls_context
@@ -92,6 +92,22 @@ class ProfileNormalizationTests(unittest.TestCase):
         second, _ = normalize_profile(SEED, previous=first, now=NOW.replace(year=2027))
         self.assertEqual(first, second)
 
+    def test_variants_add_exactly_allowlisted_groups(self):
+        original = json.loads(SEED)
+        for name, selected in PROFILE_VARIANTS.items():
+            with self.subTest(variant=name):
+                output, added = normalize_profile(SEED, now=NOW, include_fields=selected)
+                result = json.loads(output)
+                self.assertEqual(set(result)-set(original), set(selected)-set(original))
+                self.assertEqual(set(added), set(selected)-set(original))
+                self.assertTrue(all(type(v) is str for v in result.values()))
+        self.assertEqual(normalize_profile(SEED, include_fields=PROFILE_VARIANTS['baseline']), (SEED, ()))
+
+    def test_disallow_unknown_field_injection(self):
+        for fields in (frozenset({'private-field'}), {'AppearanceData'}, None):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                normalize_profile(SEED, include_fields=fields)
+
     def test_utc_date_format(self):
         data = json.loads(normalize_profile('{}', now=NOW)[0])
         self.assertEqual(data['LoginTime'], '2026.10.12-15.30.00')
@@ -135,6 +151,32 @@ class ProfileDatabaseTests(unittest.TestCase):
             self.assertEqual(original.get(self.account)[0]['data'], SEED)
         finally:
             original.close()
+
+    def test_isolated_profile_variants_preserve_source_and_account(self):
+        for variant in PROFILE_VARIANTS:
+            with self.subTest(variant=variant):
+                copy = profile_snapshot(self.home)
+                database = ProfileDatabase(copy, variant=variant)
+                try:
+                    record = database.get(self.account)[0]
+                    self.assertEqual(record['id'], self.char)
+                    self.assertEqual(record['updateVersion'], 7)
+                    self.assertEqual(record['name'], 'Synthetic')
+                    data = json.loads(record['data'])
+                    self.assertEqual(len(data), 2 + len(PROFILE_VARIANTS[variant]))
+                    self.assertEqual(database.profile_summary['variant'], variant)
+                    self.assertFalse(database.profile_summary['original_database_used'])
+                    reply = database.save(self.account, self.char, SEED, 8)
+                    self.assertEqual(reply['data'], record['data'])
+                finally:
+                    database.close()
+        self.assertEqual(hashlib.sha256((self.home/'players.sqlite3').read_bytes()).hexdigest(), self.original_hash)
+
+    def test_unsupported_variant_does_not_open_database(self):
+        before = hashlib.sha256(self.copy_path.read_bytes()).hexdigest()
+        with self.assertRaises(ValueError):
+            ProfileDatabase(self.copy_path, variant='everything-and-more')
+        self.assertEqual(hashlib.sha256(self.copy_path.read_bytes()).hexdigest(), before)
 
     def test_original_path_cannot_enable_profile_database(self):
         with self.assertRaises(ValueError):
@@ -274,6 +316,24 @@ class ProfileSnapshotTests(unittest.TestCase):
 
 
 class ProfileClientMarkerTests(unittest.TestCase):
+    def test_login_error_text_is_reduced_to_safe_fixed_hints(self):
+        from tools.client_trace import classify_line
+        line = b'LogOnline: Error: LoginOperation Failed - Error = CharacterVersionInvalid token=PRIVATE_TOKEN\n'
+        labels = classify_line(line)
+        self.assertIn('login_operation_failed', labels)
+        self.assertIn('login_error_text_mentions_character', labels)
+        self.assertIn('login_error_text_mentions_version', labels)
+        self.assertNotIn('PRIVATE_TOKEN', str(labels))
+        self.assertNotIn('CharacterVersionInvalid', str(labels))
+        self.assertEqual(classify_line(line.replace(b'LogOnline:', b'NotGame:')), ())
+
+    def test_other_login_reasons_are_not_guessed_as_character(self):
+        from tools.client_trace import classify_line
+        labels = classify_line(b'LogOnline: Error: LoginOperation Failed - Error = UnknownError\n')
+        self.assertIn('login_operation_failed', labels)
+        self.assertNotIn('login_error_text_mentions_character', labels)
+        self.assertNotIn('login_cancelled_explicit', labels)
+
     def test_specific_migration_failures_are_retained_without_raw_content(self):
         from tools.client_trace import ClientTrace
         trace = ClientTrace()

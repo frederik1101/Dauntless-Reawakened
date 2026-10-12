@@ -14,6 +14,15 @@ class StandaloneServerTests(unittest.TestCase):
         self.assertEqual(result['gameplay_host'], 'not_implemented')
         self.assertEqual(result['epic_auth'], 'not_implemented')
 
+    def test_profile_variant_requires_snapshot_and_valid_allowlist_before_edits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)/'untouched'
+            for variant, enabled in [('without-appearance', False), ('bad-name', True)]:
+                with self.subTest(variant=variant, enabled=enabled):
+                    with self.assertRaises(ValueError):
+                        serve(home, 8765, mystic_profile=enabled, profile_variant=variant)
+                    self.assertFalse(home.exists())
+
     def test_rejects_privileged_and_invalid_ports_before_editing(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / 'untouched'

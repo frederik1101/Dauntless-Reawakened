@@ -15,12 +15,23 @@ from pathlib import Path
 import re
 from .database import Database
 
-PROFILE_NAME = 'mystic-profile-211-v1'
+PROFILE_NAME = 'mystic-profile-211-v2'
 TARGET_CHANGELIST = '682875'
 MAX_DATA_BYTES = 262144
 FIELDS = frozenset({'RecentPlayers', 'CharacterFlagData', 'LoginFlagData',
                     'PlayerDataRepair', 'AppearanceData', 'LoginTime',
                     'LastLoginTime', 'LastChangelist'})
+# A/B the seven added fields in clean database snapshots.
+PROFILE_VARIANTS = {
+    'full': FIELDS,
+    'without-appearance': FIELDS - {'AppearanceData'},
+    'without-flags': FIELDS - {'CharacterFlagData', 'LoginFlagData', 'PlayerDataRepair'},
+    'without-metadata': FIELDS - {'LoginTime', 'LastLoginTime', 'LastChangelist'},
+    'appearance-only': frozenset({'AppearanceData'}),
+    'flags-only': frozenset({'CharacterFlagData', 'LoginFlagData', 'PlayerDataRepair'}),
+    'metadata-only': frozenset({'LoginTime', 'LastLoginTime', 'LastChangelist'}),
+    'baseline': frozenset(),
+}
 # 2.1.1 names, never Mystic's 1.12 numeric ordinal ordering.
 CREATED_STATES = frozenset({'SavedCharacter', 'TrainingGroundsComplete',
     'DefeatedGnasher', 'EnteredRamsgate', 'FinishedFirstHunt', 'FinishedSecondHunt'})
@@ -50,16 +61,19 @@ def _json(value: object) -> str:
 
 
 def normalize_profile(text: str, *, previous: str | None = None,
-                      now: datetime | None = None) -> tuple[str, tuple[str, ...]]:
+                      now: datetime | None = None,
+                      include_fields: frozenset[str] = FIELDS) -> tuple[str, tuple[str, ...]]:
     """Fill missing keys only. Preserve supplied strings, unknown fields and state.
 
     New dates/LastChangelist are synthetic test metadata, not recovered history.
     Existing values (including empty strings) are deliberately not overwritten.
     A new appearance contains the common structure, NOT unverified 1.12 cosmetics.
     """
+    if not isinstance(include_fields, frozenset) or not include_fields.issubset(FIELDS):
+        raise ValueError('Unrecognised character profile fields')
     data = _object(text)
     old = _object(previous) if previous is not None else {}
-    missing = FIELDS.difference(data)
+    missing = include_fields.difference(data)
     if not missing:
         return text, ()  # Keep exact bytes when no repair is needed.
     instant = now if now is not None else datetime.now(timezone.utc)
@@ -99,12 +113,16 @@ class ProfileDatabase(Database):
     unchanged at that point; subsequent client saves keep ordinary version checks.
     Normalization is not run in GET and does not silently change a live version.
     """
-    def __init__(self, path):
+    def __init__(self, path, *, variant: str = 'full'):
         if str(path) != ':memory:' and (Path(path).parent.name != 'profile-tests' or
                 not re.fullmatch(r'mystic-profile-[0-9a-f]{32}\.sqlite3', Path(path).name)):
             raise ValueError('ProfileDatabase requires an isolated profile snapshot')
+        if variant not in PROFILE_VARIANTS:
+            raise ValueError('Unknown profile variant')
+        self.variant = variant
+        self.include_fields = PROFILE_VARIANTS[variant]
         super().__init__(path)
-        self.profile_summary = {'profile': PROFILE_NAME, 'characters_changed': 0,
+        self.profile_summary = {'profile': PROFILE_NAME, 'variant': variant, 'characters_changed': 0,
                                 'fields_added': 0, 'original_database_used': False}
         try:
             with self._lock, self._db:
@@ -113,7 +131,7 @@ class ProfileDatabase(Database):
                     raise ValueError('Too many characters for the solo profile test')
                 now = datetime.now(timezone.utc)
                 for row in rows:
-                    normalized, added = normalize_profile(row['data'], now=now)
+                    normalized, added = normalize_profile(row['data'], now=now, include_fields=self.include_fields)
                     if added:
                         self._db.execute('UPDATE characters SET data=? WHERE id=? AND account_id=?',
                                          (normalized, row['id'], row['account_id']))
@@ -124,7 +142,7 @@ class ProfileDatabase(Database):
             raise
 
     def create(self, account_id, name, seed):
-        normalized, _ = normalize_profile(seed)
+        normalized, _ = normalize_profile(seed, include_fields=self.include_fields)
         return super().create(account_id, name, normalized)
 
     def save(self, account_id, character_id, data, version, *, allow_identical_retry=False):
@@ -137,6 +155,6 @@ class ProfileDatabase(Database):
                                    (character_id, account_id)).fetchone()
             if row is None:
                 raise KeyError('Character not found')
-            normalized, _ = normalize_profile(data, previous=row['data'])
+            normalized, _ = normalize_profile(data, previous=row['data'], include_fields=self.include_fields)
             return super().save(account_id, character_id, normalized, version,
                                 allow_identical_retry=allow_identical_retry)

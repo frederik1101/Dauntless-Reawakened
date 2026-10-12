@@ -68,6 +68,22 @@ def classify_line(line: bytes) -> tuple[str, ...]:
     cancellation = re.search(r'LoginOperation Failed - Error = (?:EOS_)?(?:Canceled|Cancelled|UserCanceled|UserCancelled)(?=$|[\s,;])', text)
     if cancellation:
         result.append('login_cancelled_explicit')
+    # Fixed hints from the actual failure line; never persist arbitrary errors.
+    anchor = 'LoginOperation Failed - Error ='
+    if anchor in text:
+        reason = text.split(anchor, 1)[1][:256].lower()
+        if 'character' in reason:
+            result.append('login_error_text_mentions_character')
+        if 'compatib' in reason:
+            result.append('login_error_text_mentions_compatibility')
+        if 'version' in reason or 'changelist' in reason:
+            result.append('login_error_text_mentions_version')
+        if 'timeout' in reason or 'timedout' in reason:
+            result.append('login_error_text_mentions_timeout')
+        if 'account' in reason:
+            result.append('login_error_text_mentions_account')
+        if 'eos_' in reason or 'epic' in reason:
+            result.append('login_error_text_mentions_epic')
     # A marker means the LINE was observed, not that its message is authoritative.
     return tuple(dict.fromkeys(result))
 
