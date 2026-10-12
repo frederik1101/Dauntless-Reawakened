@@ -183,3 +183,13 @@ MARKERS += (
     ('login_time_saved', 'RecordLoginTime: New login time set successfully'),
     ('login_previous_time_saved', 'RecordLoginTime: Last login time & last changelist set successfully'),
 )
+
+# Reviewed 2.1.1 literals; observation is NOT proof of completed migration/login.
+MARKERS += (
+    ('migration_trigger_no_response', 'Trigger from service sent no response'),
+    ('migration_response_invalid', 'Player Data Migration Failed with invalid response'),
+    ('migration_not_finished', "Data migration rework - migration didn't finish"),
+    ('inventory_migration_failed', 'FAILED INVENTORY MIGRATION'),
+    ('character_previous_build_missing', "Character's last active session was on an unknown CL."),
+    ('character_previous_build_checked', "Character's last active session was on changelist"),
+)

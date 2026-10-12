@@ -95,3 +95,17 @@ adaptations, not a claim that Mystic supports Dauntless 2.1.1. See
 IDENTITY_MAPPING_211.md for the conditional claim projection and evidence limits.
 No Epic signatures, game data, progression constants, credentials or game
 executable are bundled. Existing AGPL-3.0-only and Section 7 notices remain.
+
+## Character-profile experiment (12 October 2026)
+
+`backend/character_profile.py` adapts the missing-field initialization approach
+from Mystic Paradox `ParadoxBackend/src/controllers/character.ts`, commit
+386302c1333fe3dfcb2baf176edc101e200f5081, blob
+fabe2f180775c1a4fce72cdb935a8089e792ed09. Original work Copyright (C) 2026
+gwog / Gregory Morford; modified work Copyright (C) 2026 MysticFox / Pranav
+Karande. AGPL-3.0-only with the existing Section 7 additional terms applies.
+The 1.12 ordinal mapping, forced tutorial flags, quest series, cosmetic presets,
+item grants, and server-authoritative conflict override are NOT ported.
+The 2.1.1 structural profile is a synthetic, opt-in interoperability experiment
+on a new database snapshot, not recovered production character data. See
+docs/CHARACTER_PROFILE_211.md for evidence and test boundaries.

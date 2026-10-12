@@ -7,7 +7,7 @@ import os
 import time
 from pathlib import Path
 
-REVISION = 'identity-mapping-20261012.5'
+REVISION = 'character-profile-20261012.6'
 EXACT_SHA256 = '934325acecf64e19a01f70f72dcdcebd68cfb12f11a812cd551c608ac16cea34'
 MAP = '/Game/Maps/ramsgate/ramsgate_01_persistent'
 # The map and city mode are documented in Revived's awakening-2-1-1.md.

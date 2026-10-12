@@ -32,7 +32,7 @@ def default_home() -> Path:
 
 def serve(home: Path, port: int, *, stop: threading.Event | None = None,
           client_ports: bool = False, diagnostic: bool = False,
-          presence: bool = False) -> None:
+          presence: bool = False, mystic_profile: bool = False) -> None:
     if presence and not client_ports:
         raise ValueError('Presence requires explicit --client-ports mode')
     if type(port) is not int or not 1024 <= port <= 65535:
@@ -46,10 +46,20 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         if not (tls / filename).is_file():
             raise ValueError('Incomplete TLS directory; preserve it for review')
     context = tls_context(tls / 'server.pem', tls / 'server-key.pem')
-    backup = backup_before_post_login(home / 'players.sqlite3')
+    database_path = home / 'players.sqlite3'
+    if mystic_profile:
+        from tools.profile_database import profile_snapshot
+        database_path = profile_snapshot(home)
+    backup = backup_before_post_login(database_path)
     if backup is not None:
         print('Pre-upgrade SQLite backup retained:', backup, flush=True)
-    database = Database(home / 'players.sqlite3')
+    if mystic_profile:
+        from backend.character_profile import ProfileDatabase
+        database = ProfileDatabase(database_path)
+        print('EXPERIMENTAL MYSTIC PROFILE: fresh DB copy; original players.sqlite3 unchanged.', flush=True)
+        print('PROFILE_INITIALIZATION ' + json.dumps(database.profile_summary), flush=True)
+    else:
+        database = Database(database_path)
     servers = []
     workers = []
     presence_hub = None
@@ -89,7 +99,7 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
             worker.start()
             workers.append(worker)
         print('Reawakened standalone API: https://127.0.0.1:%d/health' % (443 if client_ports else port), flush=True)
-        print('Database: ' + str(home / 'players.sqlite3'), flush=True)
+        print('Database: ' + str(database_path), flush=True)
         print('LOCAL API ONLY. No Epic login, native gameplay host, Ramsgate join or playable character.', flush=True)
         if presence:
             print('PRESENCE TRANSPORT enabled; no game updates or native host.', flush=True)
@@ -162,7 +172,11 @@ def self_test() -> dict:
         if (projection.subject == projection.epic_id or
                 len(result['accountMappings']) != 1):
             raise ValueError('Packaged typed identity mapping failed')
-        return {'api': 'passed', 'unauthenticated_character': 'denied',
+        from backend.character_profile import normalize_profile
+        profile, added = normalize_profile('{"PlayerAccountProgressStep":"EnteredRamsgate"}')
+        if len(added) != 8 or not all(isinstance(v, str) for v in json.loads(profile).values()):
+            raise ValueError('Packaged profile initializer failed')
+        return {'profile_initializer': 'passed', 'api': 'passed', 'unauthenticated_character': 'denied',
                 'post_login_revision': REVISION, 'local_mapping': 'passed',
                 'presence_codec': 'passed', 'character_retry': 'passed',
                 'typed_identity_mapping': 'passed',
@@ -176,6 +190,8 @@ def main() -> int:
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--home', type=Path)
     parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('--mystic-profile', action='store_true',
+                        help='Test missing-field initialization on a fresh SQLite copy, never the original')
     parser.add_argument('--presence', action='store_true',
                         help='Optional local presence WebSocket; not game-host emulation')
     parser.add_argument('--diagnostic', action='store_true',
@@ -192,7 +208,8 @@ def main() -> int:
             logging.basicConfig(level=logging.INFO, format='%(asctime)sZ %(levelname)s %(message)s',
                                 datefmt='%Y-%m-%dT%H:%M:%S')
             serve(args.home or default_home(), args.port, client_ports=args.client_ports,
-                  diagnostic=args.diagnostic, presence=args.presence)
+                  diagnostic=args.diagnostic, presence=args.presence,
+                  mystic_profile=args.mystic_profile)
     except (OSError, ValueError) as exc:
         parser.exit(1, 'Server stopped: %s\n' % exc)
     return 0

@@ -60,7 +60,8 @@ class PostLoginApplication(RamsgateApplication):
             old = super().handle(method, host, path, headers, body, secure=secure)
             return Response(old.status, {**old.payload, 'post_login_revision': REVISION,
                 'post_login_compatibility': True, 'post_login_client_verified': False,
-                'game_compatible': False}, old.route)
+                'game_compatible': False,
+                'character_profile_experiment': getattr(self.database, 'profile_summary', None)}, old.route)
         if (method, service, endpoint) == (
                 'PUT', 'gamesession-prod', '/gamesession/epiceos'):
             return self._research_exchange(lower, secure=secure)
