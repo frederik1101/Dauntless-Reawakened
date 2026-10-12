@@ -5,6 +5,7 @@ on:
     paths:
       - 'backend/**'
       - 'tools/**'
+      - 'launcher/native/**'
       - 'tests/**'
       - 'requirements-dev.txt'
       - '.github/workflows/build-standalone-server.yml'
@@ -32,7 +33,17 @@ jobs:
         run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Local-Server --paths . tools/standalone_server.py
       - name: Build matching reversible client launcher
         run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Ramsgate-Preview --paths . tools/ramsgate_map_preview.py
-      - name: Test both packaged executables without game files
+      - name: Build native Win32 C++ launcher
+        shell: pwsh
+        run: |
+          cmake -S launcher/native -B build/native-launcher -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
+          cmake --build build/native-launcher --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native C++ build failed' }
+          $native = Get-ChildItem build/native-launcher -Recurse -Filter ReawakenedLauncher.exe -File | Select-Object -First 1
+          if (-not $native) { throw 'Native launcher output missing' }
+          Copy-Item $native.FullName dist/ReawakenedLauncher.exe
+      - name: Test all three packaged executables without game files
         shell: pwsh
         run: |
           $old = $env:LOCALAPPDATA
@@ -45,13 +56,15 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Packaged client helper self-test failed' }
             & .\dist\Reawakened-Ramsgate-Preview.exe --help
             if ($LASTEXITCODE -ne 0) { throw 'Packaged client CLI failed' }
+            & .\dist\ReawakenedLauncher.exe --self-test
+            if ($LASTEXITCODE -ne 0) { throw 'Native C++ launcher self-test failed' }
             if (Test-Path $profile) { throw 'Self-tests created user profile files' }
           } finally { $env:LOCALAPPDATA = $old }
       - name: Include source, instructions and license
         shell: pwsh
         run: |
           Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md,THIRD_PARTY_NOTICES.md dist
-          Copy-Item docs/LOGIN_CONTINUITY.md dist/START-HERE.md
+          Copy-Item docs/NATIVE_LAUNCHER.md dist/START-HERE.md
           git archive --format=zip --output=dist/Corresponding-Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
           git rev-parse HEAD | Set-Content -Encoding ascii dist/BUILD-COMMIT.txt

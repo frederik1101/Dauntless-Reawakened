@@ -11,6 +11,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -129,6 +130,22 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         database.close()
 
 
+def monitor_launcher_control(stream, stop: threading.Event) -> None:
+    """One-way private parent pipe. STOP or EOF requests graceful shutdown.
+
+    No HTTP endpoint, remote actor, path, token or line contents are logged.
+    Without --launcher-control the server continues its old console behavior.
+    """
+    try:
+        while not stop.is_set():
+            line = stream.readline(64)
+            if line in (b'', b'STOP\n', b'STOP\r\n'):
+                stop.set()
+                return
+    except (OSError, ValueError):
+        stop.set()
+
+
 def self_test() -> dict:
     database = Database(':memory:')
     try:
@@ -209,6 +226,8 @@ def main() -> int:
                         help='Extra value-free JSON shape, timing and session diagnostics')
     parser.add_argument('--client-ports', action='store_true',
                         help='Bind loopback HTTP 80 and HTTPS 443 for a separate reversible client test')
+    parser.add_argument('--launcher-control', action='store_true',
+                        help='Read STOP or EOF from private parent stdin for graceful native launcher shutdown')
     args = parser.parse_args()
     print('Server revision:', REVISION)
     try:
@@ -218,9 +237,17 @@ def main() -> int:
             logging.Formatter.converter = time.gmtime
             logging.basicConfig(level=logging.INFO, format='%(asctime)sZ %(levelname)s %(message)s',
                                 datefmt='%Y-%m-%dT%H:%M:%S')
+            if args.launcher_control and not args.client_ports:
+                raise ValueError('--launcher-control requires --client-ports')
+            stop = threading.Event() if args.launcher_control else None
+            if stop is not None:
+                threading.Thread(target=monitor_launcher_control,
+                                 args=(sys.stdin.buffer, stop),
+                                 name='launcher-control', daemon=True).start()
             serve(args.home or default_home(), args.port, client_ports=args.client_ports,
                   diagnostic=args.diagnostic, presence=args.presence,
-                  mystic_profile=args.mystic_profile, profile_variant=args.profile_variant)
+                  mystic_profile=args.mystic_profile, profile_variant=args.profile_variant,
+                  stop=stop)
     except (OSError, ValueError) as exc:
         parser.exit(1, 'Server stopped: %s\n' % exc)
     return 0
