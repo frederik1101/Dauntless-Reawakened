@@ -1,0 +1,12 @@
+{
+  "FileVersion": 3,
+  "Category": "Games",
+  "Description": "Independent UE5 networking lab. Not compatible with Dauntless.",
+  "Modules": [
+    {
+      "Name": "RamsgateResearch",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

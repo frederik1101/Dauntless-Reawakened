@@ -55,3 +55,13 @@ Pranav Karande. See NOTICE.md for contribution and provenance information.
 
 No warranty. Not affiliated with or endorsed by Phoenix Labs, Epic Games, Mystic Paradox,
 Undaunted or Dauntless Revived.
+
+## Character compatibility and separate UE laboratory (October 2026)
+
+- [A/B testing the 2.1.1 character fields](docs/CHARACTER_FIELD_ISOLATION_211.md):
+  local SQLite snapshots and filtered client errors, not a verified login fix.
+- [Independent Unreal 5 dedicated-server sample](ue5_lab/RamsgateResearch/README.md):
+  **not compatible** with the stock Dauntless client; Unreal Engine must be
+  installed separately and this template has not been compiled in UE.
+- [Original game host requirements](docs/UE5_HOST_GAP.md): actual game
+  world/driver/replication and admission readiness still missing.
