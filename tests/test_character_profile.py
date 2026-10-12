@@ -163,7 +163,7 @@ class ProfileDatabaseTests(unittest.TestCase):
                     self.assertEqual(record['updateVersion'], 7)
                     self.assertEqual(record['name'], 'Synthetic')
                     data = json.loads(record['data'])
-                    self.assertEqual(len(data), 2 + len(PROFILE_VARIANTS[variant]))
+                    self.assertEqual(len(data), len(set(json.loads(SEED)) | PROFILE_VARIANTS[variant]))
                     self.assertEqual(database.profile_summary['variant'], variant)
                     self.assertFalse(database.profile_summary['original_database_used'])
                     reply = database.save(self.account, self.char, SEED, 8)
