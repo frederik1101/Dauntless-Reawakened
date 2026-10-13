@@ -90,6 +90,23 @@ def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = F
                                            getattr(self, '_diagnostic_body', b''), session=trace_session),
                     }
                     if response.route == 'epiceos-session-research' and response.status == 200:
+                        audit = response.internal_diagnostics or {}
+                        existed = audit.get('account_preexisting')
+                        owned = audit.get('owned_characters_before_exchange')
+                        if type(existed) is bool and type(owned) is int and 0 <= owned <= 1000000:
+                            # This is the selected database at THIS exchange, not
+                            # evidence of validated Epic account ownership.
+                            trace['local_account_at_exchange'] = {
+                                'preexisting': existed, 'owned_characters': owned}
+                        profile = getattr(app.database, 'profile_summary', None)
+                        trace['profile_selection'] = (
+                            {'mode': 'isolated_profile', 'variant': profile['variant']}
+                            if isinstance(profile, dict) and
+                               profile.get('variant') in {
+                                   'full', 'without-appearance', 'without-flags',
+                                   'without-metadata', 'appearance-only', 'flags-only',
+                                   'metadata-only', 'baseline'}
+                            else {'mode': 'standard_database', 'variant': None})
                         issued = app.sessions.resolve(response.payload['payload']['sessiontoken'])
                         projection = getattr(issued, 'research_identity', None)
                         if projection is not None:

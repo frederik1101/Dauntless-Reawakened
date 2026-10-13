@@ -57,14 +57,28 @@ class Database:
         self._db.commit()
 
     def account(self, subject: str) -> dict:
+        account, _ = self.account_with_observation(subject)
+        return account
+
+    def account_with_observation(self, subject: str) -> tuple[dict, dict]:
+        """Atomic account lookup plus value-free PRE-exchange identity observations.
+
+        Used only for sanitized local diagnostics. No subject, account ID, name,
+        token, character data or cross-run alias enters the observation result.
+        Creates no extra account and does not merge identity namespaces.
+        """
         if not isinstance(subject, str) or not subject or len(subject) > 512:
             raise ValueError('Invalid local identity key')
-        # Stable lookup, not an authentication check and not an anonymisation guarantee.
         account_id = hashlib.sha256(('reawakened-211:' + subject).encode()).hexdigest()[:32]
         with self._lock, self._db:
+            already_exists = self._db.execute(
+                'SELECT 1 FROM accounts WHERE id=?', (account_id,)).fetchone() is not None
             self._db.execute('INSERT OR IGNORE INTO accounts VALUES (?,?)',
                              (account_id, 'LocalSlayer'))
-        return {'accountId': account_id, 'username': 'LocalSlayer'}
+            owned = self._db.execute(
+                'SELECT COUNT(*) FROM characters WHERE account_id=?', (account_id,)).fetchone()[0]
+        return ({'accountId': account_id, 'username': 'LocalSlayer'},
+                {'account_preexisting': already_exists, 'owned_characters_before_exchange': owned})
 
     def get(self, account_id: str) -> list[dict]:
         with self._lock:

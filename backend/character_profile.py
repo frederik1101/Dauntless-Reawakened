@@ -123,9 +123,16 @@ class ProfileDatabase(Database):
         self.include_fields = PROFILE_VARIANTS[variant]
         super().__init__(path)
         self.profile_summary = {'profile': PROFILE_NAME, 'variant': variant, 'characters_changed': 0,
-                                'fields_added': 0, 'original_database_used': False}
+                                'fields_added': 0, 'original_database_used': False,
+                                'snapshot_accounts': 0, 'snapshot_characters': 0}
         try:
             with self._lock, self._db:
+                # Only counts. If the snapshot is empty, do not mistake a newly
+                # created local account for a previously persisted identity.
+                self.profile_summary['snapshot_accounts'] = self._db.execute(
+                    'SELECT COUNT(*) FROM accounts').fetchone()[0]
+                self.profile_summary['snapshot_characters'] = self._db.execute(
+                    'SELECT COUNT(*) FROM characters').fetchone()[0]
                 rows = self._db.execute('SELECT id,account_id,data FROM characters').fetchmany(129)
                 if len(rows) > 128:
                     raise ValueError('Too many characters for the solo profile test')

@@ -73,3 +73,13 @@ No full Epic verification, playable character, real world host or completed
 login is established by the automated tests. Original Epic login and EULA are
 unchanged. The local identity exchange remains explicit UNVERIFIED loopback
 research, not a secure public authentication service.
+
+## Post-character evidence (13 Oct 2026)
+
+The 12 Oct real-client run used the historical implicit full profile and
+created a new version-0 character with nine fields. A new local session had no
+character in the selected database. This does not establish the cause of the
+following character/compatibility login failure. See
+POST_CHARACTER_OBSERVATION_20261013.md for the internal, value-free account and
+profile diagnostics. Always use an explicit --profile-variant and keep the
+existing backup/restore procedure.

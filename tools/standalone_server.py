@@ -65,6 +65,10 @@ def serve(home: Path, port: int, *, stop: threading.Event | None = None,
         print('PROFILE_INITIALIZATION ' + json.dumps(database.profile_summary), flush=True)
     else:
         database = Database(database_path)
+    print('PROFILE_SELECTION ' + json.dumps({
+        'mode': 'isolated_profile' if mystic_profile else 'standard_database',
+        'variant': profile_variant if mystic_profile else None,
+    }, separators=(',', ':')), flush=True)
     servers = []
     workers = []
     presence_hub = None
@@ -218,7 +222,7 @@ def main() -> int:
     parser.add_argument('--mystic-profile', action='store_true',
                         help='Test missing-field initialization on a fresh SQLite copy, never the original')
     from backend.character_profile import PROFILE_VARIANTS
-    parser.add_argument('--profile-variant', choices=sorted(PROFILE_VARIANTS), default='full',
+    parser.add_argument('--profile-variant', choices=sorted(PROFILE_VARIANTS), default=None,
                         help='Select which documented character fields are added (requires --mystic-profile)')
     parser.add_argument('--presence', action='store_true',
                         help='Optional local presence WebSocket; not game-host emulation')
@@ -229,6 +233,13 @@ def main() -> int:
     parser.add_argument('--launcher-control', action='store_true',
                         help='Read STOP or EOF from private parent stdin for graceful native launcher shutdown')
     args = parser.parse_args()
+    # Preserve the historical default for existing scripts, but make accidental
+    # FULL profile use unmistakable before an actual client launch.
+    if args.mystic_profile and args.profile_variant is None:
+        print('WARNING: --mystic-profile WITHOUT --profile-variant selects FULL '
+              '(all eight additional fields, including AppearanceData). '
+              'Use --profile-variant explicitly for meaningful A/B results.', flush=True)
+    profile_variant = args.profile_variant or 'full'
     print('Server revision:', REVISION)
     try:
         if args.self_test:
@@ -246,7 +257,7 @@ def main() -> int:
                                  name='launcher-control', daemon=True).start()
             serve(args.home or default_home(), args.port, client_ports=args.client_ports,
                   diagnostic=args.diagnostic, presence=args.presence,
-                  mystic_profile=args.mystic_profile, profile_variant=args.profile_variant,
+                  mystic_profile=args.mystic_profile, profile_variant=profile_variant,
                   stop=stop)
     except (OSError, ValueError) as exc:
         parser.exit(1, 'Server stopped: %s\n' % exc)

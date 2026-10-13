@@ -32,7 +32,8 @@ class PostLoginApplication(RamsgateApplication):
             identity = parse_research_identity(bearer(lower))
             # Preserve the exact old lookup key. Never re-key or merge a player
             # database using the external ID, an account-link URL or mapping body.
-            account = self.database.account('eos-research:' + identity.subject)
+            account, account_observation = self.database.account_with_observation(
+                'eos-research:' + identity.subject)
             session = self.sessions.create(account['accountId'],
                 linked_epic_id=identity.epic_id, research_identity=identity)
             payload = game_session_response(session.session_id, session.session_token)
@@ -40,7 +41,9 @@ class PostLoginApplication(RamsgateApplication):
             # values, not an echo of the real Epic token or a fabricated Epic JWT.
             payload['payload']['error_code'] = None
             payload['payload']['sessionToken'] = session.session_token
-            return Response(200, payload, route)
+            # This metadata never reaches the client. Only a validated subset is
+            # copied into the local --diagnostic trace by the HTTP handler.
+            return Response(200, payload, route, internal_diagnostics=account_observation)
         except PermissionError:
             return Response(401, route=route)
         except (ValueError, TypeError, RecursionError):
