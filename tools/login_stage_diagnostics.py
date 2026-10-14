@@ -13,6 +13,7 @@ LIMIT = 2 * 1024 * 1024
 STAGES = ('no_exchange', 'local_exchange', 'character_empty', 'character_created',
           'character_loaded', 'post_character_request', 'city_join_request')
 POST = frozenset({
+    'ported-inventory-migration-none', 'ported-migration-trigger',
     'inventory-bootstrap', 'loadouts-bootstrap', 'loadout-slots',
     'progression-config-bootstrap', 'progression-objectives-bootstrap',
     'progression-tracks-bootstrap', 'cooldowns-bootstrap', 'bounties-bootstrap',
@@ -70,7 +71,8 @@ def summarize(text: str) -> dict:
     loaded = [r for r in reads if type(r['character_response'].get('character_count')) is int
               and r['character_response']['character_count'] > 0]
     last = max((i for i, r in enumerate(ok) if r in loaded), default=-1)
-    post = [r for i, r in enumerate(ok) if last >= 0 and i > last and r['route'] in POST]
+    post = [r for i, r in enumerate(ok) if last >= 0 and i > last and (r['route'] in POST or
+               (r['route'] == 'character' and r['method'] == 'POST'))]
     city = [r for i, r in enumerate(ok) if last >= 0 and i > last and r['route'] == 'ramsgate-join']
     stage = ('city_join_request' if city else 'post_character_request' if post else
              'character_loaded' if loaded else 'character_created' if created else

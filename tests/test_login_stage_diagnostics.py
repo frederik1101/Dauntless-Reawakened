@@ -75,6 +75,16 @@ class LoginStageDiagnosticsTests(unittest.TestCase):
         self.assertEqual(report['stage'], 'character_loaded')
         self.assertEqual(report['post_character_200_written'], 0)
 
+    def test_documented_migration_and_character_save_are_post_character(self):
+        log = (trace(1, 'PUT', 'epiceos-session-research') +
+               trace(2, 'GET', 'character', response={'character_count': 1}) +
+               trace(3, 'POST', 'ported-inventory-migration-none') +
+               trace(4, 'POST', 'ported-migration-trigger') +
+               trace(5, 'POST', 'character'))
+        report = summarize(log)
+        self.assertEqual(report['stage'], 'post_character_request')
+        self.assertEqual(report['post_character_200_written'], 3)
+
     def test_malformed_and_unbounded_input_fail_closed(self):
         self.assertEqual(summarize('INFO PROTOCOL_TRACE {bad\n')['stage'], 'no_exchange')
         with self.assertRaises(ValueError):
