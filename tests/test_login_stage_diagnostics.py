@@ -91,5 +91,24 @@ class LoginStageDiagnosticsTests(unittest.TestCase):
             summarize('x'*(2*1024*1024+1))
 
 
+    def test_session_flows_preserve_interleaved_authenticated_attempts(self):
+        first = {'authentication': {'input':'valid_local_session',
+                                    'session_alias':'1'*16}}
+        second = {'authentication': {'input':'valid_local_session',
+                                     'session_alias':'2'*16}}
+        log = (trace(1,'PUT','epiceos-session-research') +
+               trace(2,'GET','character',response={'character_count':1},extra=first) +
+               trace(3,'GET','character',response={'character_count':0},extra=second) +
+               trace(4,'POST','ported-inventory-migration-none',extra=first) +
+               trace(5,'GET','character',response={'character_count':1},extra=second))
+        report = summarize(log)
+        flows = report['session_flows']
+        self.assertEqual(flows['authenticated_session_count'], 2)
+        self.assertEqual([s['stage'] for s in flows['session_results']],
+                         ['post_character_request','character_loaded'])
+        self.assertEqual([s['post_character_200_written'] for s in flows['session_results']], [1,0])
+        self.assertEqual(report['stage'], 'character_loaded')  # Legacy aggregate is unchanged.
+
+
 if __name__ == '__main__':
     unittest.main()

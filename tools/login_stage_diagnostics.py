@@ -8,6 +8,7 @@ import argparse
 import json
 import re
 from pathlib import Path
+from .login_session_stages import summarize_sessions
 
 LIMIT = 2 * 1024 * 1024
 STAGES = ('no_exchange', 'local_exchange', 'character_empty', 'character_created',
@@ -118,6 +119,7 @@ def summarize(text: str) -> dict:
         'unimplemented_404_written': sum(r['status'] == 404 and r['route'] == 'unknown'
                                          for r in written),
         'truncated_at_record_limit': truncated,
+        'session_flows': summarize_sessions(written),
         'interpretation': 'Server-side socket writes only; no verified Epic login, client parsing, or gameplay.',
     }
 
