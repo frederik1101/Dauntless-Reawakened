@@ -36,6 +36,8 @@ class Response:
     status: int
     payload: object = None
     route: str = 'unknown'
+    # Internal-only value-free audit metadata. Never included in body().
+    internal_diagnostics: dict | None = None
 
     def body(self) -> bytes:
         return b'' if self.payload is None else json.dumps(

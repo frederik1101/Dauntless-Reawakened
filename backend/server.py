@@ -11,6 +11,8 @@ import socket
 import ssl
 import threading
 import time
+import uuid
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -18,12 +20,14 @@ from .application import Application, Response, target
 from .database import Database
 from .request_diagnostics import describe_request
 from .safe_diagnostics import diagnostic_record
+from .protocol_trace import authentication, response_details, PUBLIC_ROUTES
 
 LOG = logging.getLogger('reawakened.requests')
 MAX_BODY = 1048576
 
 
-def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = False):
+def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = False,
+                 presence=None):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.0'
         server_version = 'ReawakenedResearch/0.4'
@@ -31,6 +35,7 @@ def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = F
 
         def setup(self):
             self.request.settimeout(5)
+            self._response_started = False
             super().setup()
 
         def log_message(self, *_):
@@ -57,38 +62,102 @@ def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = F
                      'https' if secure else 'http', label.route_key)
             if diagnostic:
                 # Fixed route and allowlisted JSON keys only. No raw request data.
+                trace_session = None
                 try:
                     from .application import bearer
                     auth = {k.lower(): v for k, v in getattr(self, 'headers', {}).items()}
                     token = bearer(auth)
-                    session_ok = app.sessions.resolve(token) is not None
+                    trace_session = app.sessions.resolve(token)
+                    session_ok = trace_session is not None
                 except (PermissionError, ValueError, AttributeError):
                     session_ok = False
+                if response.route in PUBLIC_ROUTES or response.route == 'epiceos-session-research':
+                    session_ok = None  # No local-bearer check is expected on these requests.
                 LOG.info('DIAGNOSTIC %s', diagnostic_record(
                     method, response.route, response.status, response.payload,
                     getattr(self, '_diagnostic_request_bytes', 0),
                     getattr(self, '_diagnostic_started_ns', time.perf_counter_ns()),
                     session_valid=session_ok))
-            self.send_response(response.status)
-            self.send_header('Content-Length', str(len(body)))
-            self.send_header('Cache-Control', 'no-store')
-            self.send_header('Connection', 'close')
-            if body:
-                self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.end_headers()
-            if self.command != 'HEAD' and body:
-                self.wfile.write(body)
-            self.close_connection = True
+            trace_id = getattr(self, '_trace_id', None)
+            if diagnostic:
+                try:
+                    trace = {
+                        'request_id': trace_id, 'phase': 'prepared', 'method': method,
+                        'route': response.route, 'status': response.status,
+                        'response_bytes': len(body),
+                        'authentication': authentication(app, getattr(self, 'headers', {}), response.route),
+                        **response_details(response.route, response.payload,
+                                           getattr(self, '_diagnostic_body', b''), session=trace_session),
+                    }
+                    if response.route == 'epiceos-session-research' and response.status == 200:
+                        audit = response.internal_diagnostics or {}
+                        existed = audit.get('account_preexisting')
+                        owned = audit.get('owned_characters_before_exchange')
+                        if type(existed) is bool and type(owned) is int and 0 <= owned <= 1000000:
+                            # This is the selected database at THIS exchange, not
+                            # evidence of validated Epic account ownership.
+                            trace['local_account_at_exchange'] = {
+                                'preexisting': existed, 'owned_characters': owned}
+                        profile = getattr(app.database, 'profile_summary', None)
+                        trace['profile_selection'] = (
+                            {'mode': 'isolated_profile', 'variant': profile['variant']}
+                            if isinstance(profile, dict) and
+                               profile.get('variant') in {
+                                   'full', 'without-appearance', 'without-flags',
+                                   'without-metadata', 'appearance-only', 'flags-only',
+                                   'metadata-only', 'baseline'}
+                            else {'mode': 'standard_database', 'variant': None})
+                        issued = app.sessions.resolve(response.payload['payload']['sessiontoken'])
+                        projection = getattr(issued, 'research_identity', None)
+                        if projection is not None:
+                            trace['identity_projection'] = projection.summary()
+                    LOG.info('PROTOCOL_TRACE %s', json.dumps(trace, separators=(',', ':'), allow_nan=False))
+                except Exception:
+                    # Diagnostic failures must not change the application response.
+                    LOG.warning('PROTOCOL_TRACE_METADATA_FAILED request_id=%s', trace_id)
+            try:
+                self._response_started = True
+                self.send_response(response.status)
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Connection', 'close')
+                if body:
+                    self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                if self.command != 'HEAD' and body:
+                    self.wfile.write(body)
+                self.wfile.flush()
+            except (OSError, ValueError):
+                if diagnostic:
+                    LOG.info('PROTOCOL_TRACE_END request_id=%s delivery=socket_write_failed', trace_id)
+                raise
+            else:
+                if diagnostic:
+                    # Written locally, NOT proof that the client received/parsed it.
+                    LOG.info('PROTOCOL_TRACE_END request_id=%s delivery=written_to_socket', trace_id)
+            finally:
+                self._diagnostic_body = b''
+                self.close_connection = True
 
         def _dispatch(self):
             self._diagnostic_started_ns = time.perf_counter_ns()
             self._diagnostic_request_bytes = 0
+            self._diagnostic_body = b''
+            self._trace_id = uuid.uuid4().hex[:16] if diagnostic else None
             try:
                 if not ipaddress.ip_address(self.client_address[0]).is_loopback:
                     return self._send(Response(403, route='non-loopback'))
                 for name in ('Host', 'Content-Length', 'Authorization', 'Origin', 'X-Reawakened-Lab-Key'):
                     if len(self.headers.get_all(name, [])) > 1:
                         return self._send(Response(400, route='duplicate-header'))
+                if presence is not None:
+                    try:
+                        service, endpoint = target(self.headers.get('Host', ''), self.path)
+                    except (ValueError, TypeError):
+                        return self._send(Response(400, route='invalid-host-or-target'))
+                    from .presence import is_presence_path, handle_presence
+                    if is_presence_path(service, endpoint):
+                        return handle_presence(self, presence, endpoint)
                 if self.headers.get('Transfer-Encoding'):
                     return self._send(Response(400, route='unsupported-transfer-encoding'))
                 raw_length = self.headers.get('Content-Length', '0')
@@ -101,24 +170,36 @@ def make_handler(app: Application, *, secure: bool = False, diagnostic: bool = F
                 body = self.rfile.read(length)
                 if len(body) != length:
                     return self._send(Response(400, route='truncated-body'))
+                if diagnostic:
+                    self._diagnostic_body = body
                 reply = app.handle(self.command, self.headers.get('Host', ''), self.path,
                                    dict(self.headers.items()), body, secure=secure)
                 return self._send(reply)
             except (TimeoutError, socket.timeout):
+                if diagnostic:
+                    LOG.info('PROTOCOL_TRACE_ABORT request_id=%s reason=transport_timeout', self._trace_id)
                 self.close_connection = True
             except (BrokenPipeError, ConnectionResetError):
+                if diagnostic:
+                    LOG.info('PROTOCOL_TRACE_ABORT request_id=%s reason=peer_disconnected', self._trace_id)
                 self.close_connection = True
             except Exception:
                 # No tracebacks with local data on the public log stream.
                 LOG.error('backend-internal-error')
-                self._send(Response(500, route='internal-error'))
+                if not self._response_started:
+                    self._send(Response(500, route='internal-error'))
+                else:
+                    self.close_connection = True
+            finally:
+                self._diagnostic_body = b''
 
         do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = do_OPTIONS = do_PATCH = _dispatch
     return Handler
 
 
 def make_server(app: Application, host: str = '127.0.0.1', port: int = 8765,
-                tls: ssl.SSLContext | None = None, *, diagnostic: bool = False) -> ThreadingHTTPServer:
+                tls: ssl.SSLContext | None = None, *, diagnostic: bool = False,
+                presence=None) -> ThreadingHTTPServer:
     if host not in {'127.0.0.1', '::1'}:
         raise ValueError('Only explicit loopback addresses are allowed')
     class LocalServer(ThreadingHTTPServer):
@@ -146,7 +227,8 @@ def make_server(app: Application, host: str = '127.0.0.1', port: int = 8765,
                     raise
             return connection, address
 
-    return LocalServer((host, port), make_handler(app, secure=tls is not None, diagnostic=diagnostic))
+    return LocalServer((host, port), make_handler(app, secure=tls is not None,
+                                                     diagnostic=diagnostic, presence=presence))
 
 
 def tls_context(cert: str | Path, key: str | Path) -> ssl.SSLContext:

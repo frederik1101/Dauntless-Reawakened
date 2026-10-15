@@ -1,13 +1,15 @@
-name: Build post-login server and client test
+name: Build login continuity server and client test
 on:
   push:
-    branches: [work/ramsgate-map-preview]
+    branches: [work/ramsgate-map-preview, work/login-continuity-211]
     paths:
       - 'backend/**'
       - 'tools/**'
+      - 'launcher/native/**'
       - 'tests/**'
       - 'requirements-dev.txt'
       - '.github/workflows/build-standalone-server.yml'
+      - 'docs/LOGIN_CONTINUITY.md'
       - 'docs/POST_LOGIN_FIXES.md'
       - 'docs/STANDALONE_LOCAL_SERVER.md'
       - 'NOTICE.md'
@@ -31,7 +33,17 @@ jobs:
         run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Local-Server --paths . tools/standalone_server.py
       - name: Build matching reversible client launcher
         run: python -m PyInstaller --clean --noconfirm --onefile --console --name Reawakened-Ramsgate-Preview --paths . tools/ramsgate_map_preview.py
-      - name: Test both packaged executables without game files
+      - name: Build native Win32 C++ launcher
+        shell: pwsh
+        run: |
+          cmake -S launcher/native -B build/native-launcher -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Native configure failed' }
+          cmake --build build/native-launcher --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native C++ build failed' }
+          $native = Get-ChildItem build/native-launcher -Recurse -Filter ReawakenedLauncher.exe -File | Select-Object -First 1
+          if (-not $native) { throw 'Native launcher output missing' }
+          Copy-Item $native.FullName dist/ReawakenedLauncher.exe
+      - name: Test all three packaged executables without game files
         shell: pwsh
         run: |
           $old = $env:LOCALAPPDATA
@@ -44,20 +56,22 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Packaged client helper self-test failed' }
             & .\dist\Reawakened-Ramsgate-Preview.exe --help
             if ($LASTEXITCODE -ne 0) { throw 'Packaged client CLI failed' }
+            & .\dist\ReawakenedLauncher.exe --self-test
+            if ($LASTEXITCODE -ne 0) { throw 'Native C++ launcher self-test failed' }
             if (Test-Path $profile) { throw 'Self-tests created user profile files' }
           } finally { $env:LOCALAPPDATA = $old }
       - name: Include source, instructions and license
         shell: pwsh
         run: |
-          Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md dist
-          Copy-Item docs/POST_LOGIN_FIXES.md dist/START-HERE.md
+          Copy-Item LICENSE,NOTICE.md,ADDITIONAL_TERMS.md,THIRD_PARTY_NOTICES.md dist
+          Copy-Item docs/NATIVE_LAUNCHER.md dist/START-HERE.md
           git archive --format=zip --output=dist/Corresponding-Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
           git rev-parse HEAD | Set-Content -Encoding ascii dist/BUILD-COMMIT.txt
           Get-FileHash -Algorithm SHA256 dist/*.exe | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Reawakened-Post-Login-Test-Windows
+          name: Reawakened-Login-Continuity-Windows
           path: dist/
           if-no-files-found: error
           retention-days: 14

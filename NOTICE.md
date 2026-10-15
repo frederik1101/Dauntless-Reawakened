@@ -63,3 +63,49 @@ uses a read-only local SQLite balance snapshot, and reports no creator affiliati
 The tuning defaults and negative creator state are experiments, not recovered
 final 2.1.1 gameplay data or proof of client acceptance. Sources, modifications,
 validation boundaries and complete running instructions: docs/POST_LOGIN_FIXES.md.
+
+## Local source update — login reset trace, 11 October 2026
+
+The three existing game-tuning response ports now use a string `code` for the
+2.1.1 reader while keeping their object payloads and research defaults unchanged.
+This is not a recovered official 2.1.1 data set or a proven login repair.
+New protocol metadata and owned-child stdout filtering are original Reawakened
+helpers; they do not import a native runtime, perform injection or bypass Epic.
+See docs/LOGIN_CONTINUITY.md for the two-log review, evidence and validation limits.
+
+## Reawakened local continuity change — 11 October 2026
+
+login-continuity-20261011.4 includes the previously source-only type/trace
+corrections, an independent wsproto-based presence transport experiment, and
+byte-identical local character-save retry handling. No original game files or
+Mystic native runtime are included. Presence source evidence is the public
+2.1.1 static contract; its relevance to the real-client reset is unverified.
+See docs/LOGIN_CONTINUITY.md and THIRD_PARTY_NOTICES.md.
+
+## Reawakened modification — 12 October 2026: identity mapping test
+
+The post-login session reply includes the error_code and legacy sessionToken
+fields used by Mystic Paradox's login.ts (blob
+3b3f95af6ac1a24f542c33a06d8f65dac83477b6). The lowercase sessiontoken remains
+primary. Our local random session credentials are retained; the upstream
+external-token echo shortcut and unified Epic/Phoenix namespace are NOT copied.
+
+ResearchIdentity and the new relationship diagnostics are original experimental
+adaptations, not a claim that Mystic supports Dauntless 2.1.1. See
+IDENTITY_MAPPING_211.md for the conditional claim projection and evidence limits.
+No Epic signatures, game data, progression constants, credentials or game
+executable are bundled. Existing AGPL-3.0-only and Section 7 notices remain.
+
+## Character-profile experiment (12 October 2026)
+
+`backend/character_profile.py` adapts the missing-field initialization approach
+from Mystic Paradox `ParadoxBackend/src/controllers/character.ts`, commit
+386302c1333fe3dfcb2baf176edc101e200f5081, blob
+fabe2f180775c1a4fce72cdb935a8089e792ed09. Original work Copyright (C) 2026
+gwog / Gregory Morford; modified work Copyright (C) 2026 MysticFox / Pranav
+Karande. AGPL-3.0-only with the existing Section 7 additional terms applies.
+The 1.12 ordinal mapping, forced tutorial flags, quest series, cosmetic presets,
+item grants, and server-authoritative conflict override are NOT ported.
+The 2.1.1 structural profile is a synthetic, opt-in interoperability experiment
+on a new database snapshot, not recovered production character data. See
+docs/CHARACTER_PROFILE_211.md for evidence and test boundaries.

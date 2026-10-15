@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from .application import Response, bearer, target
 from .protocol_211 import game_session_response
+from .research_identity import parse_research_identity
+from .database import VersionConflict
 from .ramsgate_application import RamsgateApplication
 from .post_login_contracts import (
     REVISION, TUNING_LABELS, UnsupportedRequest, mapping_response,
@@ -22,6 +24,33 @@ class PostLoginApplication(RamsgateApplication):
         session = self.sessions.create(account['accountId'], linked_epic_id=epic)
         return Response(200, game_session_response(session.session_id, session.session_token), route)
 
+    def _research_exchange(self, lower, *, secure: bool) -> Response:
+        route = 'epiceos-session-research'
+        if not self.allow_unverified_eos_sub or not secure:
+            return Response(503, route=route)
+        try:
+            identity = parse_research_identity(bearer(lower))
+            # Preserve the exact old lookup key. Never re-key or merge a player
+            # database using the external ID, an account-link URL or mapping body.
+            account, account_observation = self.database.account_with_observation(
+                'eos-research:' + identity.subject)
+            session = self.sessions.create(account['accountId'],
+                linked_epic_id=identity.epic_id, research_identity=identity)
+            payload = game_session_response(session.session_id, session.session_token)
+            # Mystic login.ts compatibility fields. These are OUR local session
+            # values, not an echo of the real Epic token or a fabricated Epic JWT.
+            payload['payload']['error_code'] = None
+            payload['payload']['sessionToken'] = session.session_token
+            # This metadata never reaches the client. Only a validated subset is
+            # copied into the local --diagnostic trace by the HTTP handler.
+            return Response(200, payload, route, internal_diagnostics=account_observation)
+        except PermissionError:
+            return Response(401, route=route)
+        except (ValueError, TypeError, RecursionError):
+            return Response(400, route=route)
+        except OverflowError:
+            return Response(503, route=route)
+
     def handle(self, method, host, path, headers, body=b'', *, secure=False):
         lower = {key.lower(): value for key, value in headers.items()}
         if 'origin' in lower:
@@ -34,8 +63,13 @@ class PostLoginApplication(RamsgateApplication):
             old = super().handle(method, host, path, headers, body, secure=secure)
             return Response(old.status, {**old.payload, 'post_login_revision': REVISION,
                 'post_login_compatibility': True, 'post_login_client_verified': False,
-                'game_compatible': False}, old.route)
+                'game_compatible': False,
+                'character_profile_experiment': getattr(self.database, 'profile_summary', None)}, old.route)
+        if (method, service, endpoint) == (
+                'PUT', 'gamesession-prod', '/gamesession/epiceos'):
+            return self._research_exchange(lower, secure=secure)
         routes = {
+            ('POST', 'dauntless-prod', '/character'): 'character',
             ('POST', 'auth-prod', '/account/mapping'): 'post-login-account-mapping',
             ('POST', 'auth-prod', '/accountinfo/public'): 'post-login-public-account',
             ('POST', 'store-prod', '/reconcile'): 'post-login-store-reconcile',
@@ -55,7 +89,11 @@ class PostLoginApplication(RamsgateApplication):
             session = self.sessions.resolve(bearer(lower))
             if session is None:
                 raise PermissionError()
-            if blob is not None:
+            if label == 'character':
+                data = self._json(body)
+                payload = self.database.save(session.account_id, data['characterId'],
+                    data['data'], data['updateVersion'], allow_identical_retry=True)
+            elif blob is not None:
                 if label == 'post-login-tuning-unimplemented':
                     return Response(404, route=label)
                 payload = tuning_response(blob)
@@ -74,6 +112,10 @@ class PostLoginApplication(RamsgateApplication):
             return Response(200, payload, label)
         except PermissionError:
             return Response(401, route=label)
+        except VersionConflict:
+            return Response(409, route=label)
+        except KeyError:
+            return Response(400, route=label)
         except UnsupportedRequest:
             return Response(422, route=label)
         except (ValueError, TypeError, RecursionError):

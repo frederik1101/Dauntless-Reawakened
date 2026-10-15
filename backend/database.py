@@ -57,14 +57,28 @@ class Database:
         self._db.commit()
 
     def account(self, subject: str) -> dict:
+        account, _ = self.account_with_observation(subject)
+        return account
+
+    def account_with_observation(self, subject: str) -> tuple[dict, dict]:
+        """Atomic account lookup plus value-free PRE-exchange identity observations.
+
+        Used only for sanitized local diagnostics. No subject, account ID, name,
+        token, character data or cross-run alias enters the observation result.
+        Creates no extra account and does not merge identity namespaces.
+        """
         if not isinstance(subject, str) or not subject or len(subject) > 512:
             raise ValueError('Invalid local identity key')
-        # Stable lookup, not an authentication check and not an anonymisation guarantee.
         account_id = hashlib.sha256(('reawakened-211:' + subject).encode()).hexdigest()[:32]
         with self._lock, self._db:
+            already_exists = self._db.execute(
+                'SELECT 1 FROM accounts WHERE id=?', (account_id,)).fetchone() is not None
             self._db.execute('INSERT OR IGNORE INTO accounts VALUES (?,?)',
                              (account_id, 'LocalSlayer'))
-        return {'accountId': account_id, 'username': 'LocalSlayer'}
+            owned = self._db.execute(
+                'SELECT COUNT(*) FROM characters WHERE account_id=?', (account_id,)).fetchone()[0]
+        return ({'accountId': account_id, 'username': 'LocalSlayer'},
+                {'account_preexisting': already_exists, 'owned_characters_before_exchange': owned})
 
     def get(self, account_id: str) -> list[dict]:
         with self._lock:
@@ -85,16 +99,21 @@ class Database:
                              (record['id'], account_id, name, 0, seed))
         return record
 
-    def save(self, account_id: str, character_id: object, data: object, version: object) -> dict:
+    def save(self, account_id: str, character_id: object, data: object, version: object,
+             *, allow_identical_retry: bool = False) -> dict:
         if not isinstance(character_id, str) or type(version) is not int or not 0 <= version < 2**31:
             raise ValueError('Invalid character update')
         data = character_data(data)
         with self._lock, self._db:
-            row = self._db.execute('SELECT version FROM characters WHERE id=? AND account_id=?',
+            row = self._db.execute('SELECT version,data FROM characters WHERE id=? AND account_id=?',
                                    (character_id, account_id)).fetchone()
             if row is None:
                 raise KeyError('Character not found')
             if version <= row['version']:
+                # A byte-identical retry can occur after a lost HTTP reply.
+                # It is read-only; different data or an older version stays a conflict.
+                if allow_identical_retry and version == row['version'] and data == row['data']:
+                    return {'data': row['data']}
                 raise VersionConflict('Stale character version')
             self._db.execute('UPDATE characters SET version=?,data=? WHERE id=? AND account_id=?',
                              (version, data, character_id, account_id))

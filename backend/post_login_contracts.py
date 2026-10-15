@@ -13,8 +13,9 @@ from __future__ import annotations
 import copy
 import json
 import re
+from .research_identity import same_identity
 
-REVISION = 'post-login-20261011.2'
+REVISION = 'character-isolation-20261012.7'
 MAX_BODY = 65536
 TUNING = {
     'seasonal_event_schedule': {'ScheduledItems': []},
@@ -87,8 +88,9 @@ def mapping_response(body: bytes, account: str, epic: str | None) -> dict:
     mappings = {}
     if epic is not None:
         asked, answer, kind = (epic, account, 'phoenix') if source == 'epic' else (account, epic, 'epic')
-        if asked in ids:
-            mappings[asked] = {'accountId': answer, 'accountType': kind}
+        for requested in ids:
+            if same_identity(requested, asked):
+                mappings[requested] = {'accountId': answer, 'accountType': kind}
     # Root and wrapped object are both documented in Revived's compatibility reply.
     return {'accountMappings': mappings, 'code': 'OK', 'message': '',
             'payload': {'accountMappings': copy.deepcopy(mappings)}}
@@ -100,7 +102,7 @@ def public_account_response(body: bytes, account: str, epic: str | None) -> dict
         raise UnsupportedRequest('Unsupported public-account query')
     if not identifier(data['accountId']):
         raise ValueError('Invalid account ID')
-    if data['accountId'] != account:
+    if not same_identity(data['accountId'], account):
         raise PermissionError('Other account not available in solo test')
     # Do not claim the local hashed Phoenix ID is an Epic ID. A lab account has none.
     links = [] if epic is None else [{'accountId': epic, 'accountType': 'epic'}]
@@ -136,8 +138,10 @@ def reconcile_response(balances: dict) -> dict:
 def tuning_response(blob: str) -> dict:
     if blob not in TUNING:
         raise KeyError('Unimplemented tuning blob')
-    # Retain the upstream envelope. Acceptance in 2.1.1 still needs a client test.
-    return {'code': None, 'message': 'OK', 'payload': copy.deepcopy(TUNING[blob])}
+    # 2.1.1's wrapped response uses a string reader for code. Keep payload
+    # as an OBJECT: the game serializes it to its internal string itself.
+    # This is a type correction, not proof that it caused the login reset.
+    return {'code': 'OK', 'message': 'OK', 'payload': copy.deepcopy(TUNING[blob])}
 
 
 def creator_response() -> dict:
